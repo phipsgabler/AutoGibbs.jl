@@ -1,0 +1,13 @@
+name = "AutoGibbs"
+uuid = "6a25de61-aadb-4f6d-879e-70e7ecac6732"
+authors = ["Philipp Gabler <phipsgabler@users.noreply.github.com>"]
+version = "0.1.0"
+
+[compat]
+julia = "1"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
