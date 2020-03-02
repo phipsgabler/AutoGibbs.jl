@@ -3,6 +3,10 @@ uuid = "6a25de61-aadb-4f6d-879e-70e7ecac6732"
 authors = ["Philipp Gabler <phipsgabler@users.noreply.github.com>"]
 version = "0.1.0"
 
+[deps]
+AbstractMCMC = "80f14c24-f653-4e6a-9b94-39d6b0f70001"
+IRTracker = "591544fa-5de1-11e9-31f7-cbfeeb0dfc0e"
+
 [compat]
 julia = "1"
 
