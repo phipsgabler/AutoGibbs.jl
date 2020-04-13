@@ -1,7 +1,6 @@
 module AutoGibbs
 
 include("tracking.jl")
-
-export trackmodel
+include("dependencies.jl")
 
 end # module
