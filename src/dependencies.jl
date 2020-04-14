@@ -11,7 +11,7 @@ istilde(::CallingNode{typeof(DynamicPPL.tilde_assume)}) = true
 istilde(::CallingNode{typeof(DynamicPPL.tilde_observe)}) = true
 istilde(::CallingNode{typeof(DynamicPPL.dot_tilde_assume)}) = true
 istilde(::CallingNode{typeof(DynamicPPL.dot_tilde_observe)}) = true
-istilde(::CallingNode) = false
+istilde(::AbstractNode) = false
 
 
 function extract(node::CallingNode{typeof(DynamicPPL.tilde_assume)})
