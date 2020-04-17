@@ -5,15 +5,14 @@ using Distributions
 
 
 @testset "AutoGibbs.jl" begin
-    (α_0, θ_0) = (2.0, inv(3.0))
-    @model function inverse_gdemo(x)
-        λ ~ Gamma(α_0, θ_0)
+    @model function test0(x)
+        λ ~ Gamma(2.0, inv(3.0))
         m ~ Normal(0, sqrt(1 / λ))
         x ~ Normal(m, sqrt(1 / λ))
     end
 
-    model = inverse_gdemo(1.4)
-    st = AutoGibbs.strip_calls(trackmodel(model))
+    t0 = trackmodel(test0(1.4)) |> AutoGibbs.strip_calls
+    d0 = dependencies(t0)
 
 
     @model function test1(x)
@@ -45,7 +44,7 @@ using Distributions
     t3 = trackmodel(test3([1, 0, 1])) |> AutoGibbs.strip_calls
     d3 = dependencies(t3)
 
-    @model function mixture(x) 
+    @model function test4(x) 
         μ ~ MvNormal(fill(0, 2), 2.0)
         z = Vector{Int}(undef, length(x))
         for i in 1:length(x)
@@ -53,4 +52,7 @@ using Distributions
             x[i] ~ Normal(μ[z[i]], 0.1)
         end
     end
+
+    t4 = trackmodel(test4([1, 1, -1])) |> AutoGibbs.strip_calls
+    d4 = dependencies(t4)
 end
