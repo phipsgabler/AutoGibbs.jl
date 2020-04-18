@@ -16,39 +16,39 @@ istilde(::AbstractNode) = false
 
 function extract(node::CallingNode{typeof(DynamicPPL.tilde_assume)})
     args = node.call.arguments # ctx, sampler, right, vn, inds, vi
-    vn, dist, (value, logp) = args[4], args[3], getvalue(node)
-    return vn, dist, TapeConstant(value), logp
+    vn, dist, value = args[4], args[3], getvalue(node)
+    return vn, dist, TapeConstant(value)
 end
 
 function extract(node::CallingNode{typeof(DynamicPPL.tilde_observe)})
     args = node.call.arguments
     if length(args) == 7
         # ctx, sampler, right, left, vname, vinds, vi
-        vn, dist, value, logp = args[5], args[3], args[4], getvalue(node)
-        return vn, dist, value, logp
+        vn, dist, value = args[5], args[3], args[4]
+        return vn, dist, value
     elseif length(args) == 5
         # ctx, sampler, right, left, vi
-        dist, value, logp = args[3], args[4], getvalue(node)
-        return nothing, dist, value, logp
+        dist, value = args[3], args[4]
+        return nothing, dist, value
     end
 end
 
 function extract(node::CallingNode{typeof(DynamicPPL.dot_tilde_assume)})
     args = node.call.arguments # ctx, sampler, right, left, vn, inds, vi
-    vn, dist, value, logp = args[5], args[3], args[4], getvalue(node)[2]
-    return vn, dist, value, logp
+    vn, dist, value = args[5], args[3], args[4]
+    return vn, dist, value
 end
 
 function extract(node::CallingNode{typeof(DynamicPPL.dot_tilde_observe)})
     args = node.call.arguments
     if length(args) == 7
         # ctx, sampler, right, left, vn, inds, vi
-        vn, dist, value, logp = args[5], args[3], args[4], getvalue(node)
-        return vn, dist, value, logp
+        vn, dist, value = args[5], args[3], args[4]
+        return vn, dist, value
     elseif length(args) == 5
         # ctx, sampler, right, left, vi
-        dist, value, logp = args[3], args[4], getvalue(node)
-        return nothing, dist, value, logp
+        dist, value = args[3], args[4]
+        return nothing, dist, value
     end
 end
 
@@ -76,7 +76,7 @@ function dependencies(node::NestedCallNode)
     for child in getchildren(node)
         bb = extract(child)
         if !isnothing(bb)
-            vn, dist, value, logp = bb
+            vn, dist, value = bb
             push!(deps, child)
             if dist isa TapeReference
                 dist_backward!(deps, dist[])
@@ -102,14 +102,12 @@ struct Assumption{T, TDist<:DepNode} <: DepNode
     vn::VarName
     dist::TDist
     value::T
-    logp::Float64
 end
 
 struct Observation{T, TDist<:DepNode} <: DepNode
     vn::VarName
     dist::TDist
     value::T
-    logp::Float64
 end
 
 struct Call{T, TF, TArgs<:Tuple} <: DepNode
@@ -139,7 +137,7 @@ end
 
 function pushtilde!(graph, names, node::CallingNode, tildetype)
     name = newname!(names, node)
-    vn_r, dist_r, value_r, logp = extract(node)
+    vn_r, dist_r, value_r = extract(node)
     vn = getvalue(vn_r)
     if dist_r isa TapeReference
         ref = names[dist_r.index]
@@ -158,7 +156,7 @@ function pushtilde!(graph, names, node::CallingNode, tildetype)
     end
     value = getvalue(value_r)
 
-    graph[name] = tildetype(vn, dist, value, logp)
+    graph[name] = tildetype(vn, dist, value)
     return graph
 end
 
