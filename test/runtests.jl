@@ -86,4 +86,18 @@ varnames(graph) = Set(tilde.vn
     d5 = dependencies(t5)
     @test varnames(makegraph(d5)) == Set([@varname(μ), @varname(z),
                                           @varname(x[1]), @varname(x[2]), @varname(x[3])])
+
+
+    @model function test6(x, y)
+        λ ~ Gamma(2.0, inv(3.0))
+        m ~ Normal(0, sqrt(1 / λ))
+        D = Normal(m, sqrt(1 / λ))
+        x ~ D
+        y ~ D
+    end
+
+    t6 = trackmodel(test6(1.4, 1.2)) |> AutoGibbs.strip_calls
+    d6 = dependencies(t6)
+    @test varnames(makegraph(d6)) == Set([@varname(λ), @varname(m), @varname(x), @varname(y)])
+
 end
