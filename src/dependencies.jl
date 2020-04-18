@@ -58,7 +58,7 @@ extract(node::AbstractNode) = nothing
 function dist_backward!(deps, node::AbstractNode)
     current_refs = Vector{AbstractNode}(referenced(node))
     push!(deps, node)
-    
+
     while !isempty(current_refs)
         node = pop!(current_refs)
         istilde(node) && continue
@@ -202,7 +202,7 @@ end
 function pushnode!(graph, names, node::ArgumentNode)
     if !isnothing(node.branch_node)
         # skip branch argument nodes
-        original = getparent(node)
+        original = referenced(node)[1]
         names[getposition(node)] = names[getposition(original)]
     else
         # function argument nodes are handled like constants
