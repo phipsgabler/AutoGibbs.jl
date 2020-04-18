@@ -1,7 +1,7 @@
 using IRTracker
 using DynamicPPL
 
-export trackmodel
+export trackmodel, strip_model_layers
 
 
 struct AutoGibbsContext{F} <: AbstractTrackingContext end
@@ -13,11 +13,11 @@ IRTracker.canrecur(ctx::AutoGibbsContext, f, args...) = false
 trackmodel(model::Model{F}) where {F} = track(AutoGibbsContext{F}(), model)
 
 
-function strip_calls(node::NestedCallNode{<:Any, F, <:Tuple{<:Model{F}, Vararg}}) where F
+function strip_model_layers(node::NestedCallNode{<:Any, F, <:Tuple{<:Model{F}, Vararg}}) where F
     return node
 end
 
-function strip_calls(node::NestedCallNode{<:Any, <:Model{F}}) where {F}
+function strip_model_layers(node::NestedCallNode{<:Any, <:Model{F}}) where {F}
     ix = findfirst(c -> c isa NestedCallNode{<:Any, <:Union{<:Model{F}, F}}, getchildren(node))
-    return strip_calls(getchildren(node)[ix])
+    return strip_model_layers(getchildren(node)[ix])
 end
