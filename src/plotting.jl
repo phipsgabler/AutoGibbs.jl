@@ -1,8 +1,8 @@
 using IRTracker.GraphViz
 
 deps(::Constant) = Reference[]
-deps(node::Assumption) = [node.dist]
-deps(node::Observation) = [node.dist]
+deps(node::Assumption) = deps(node.dist)
+deps(node::Observation) = deps(node.dist)
 deps(node::Call) = [arg for arg in node.args if arg isa Reference]
 
 
