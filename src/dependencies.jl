@@ -108,21 +108,6 @@ tilde_parameters(node::AbstractNode) = nothing
 # end
 
 
-function add_candidates!(dependencies, candidates, node)
-    current_refs = Vector{AbstractNode}(referenced(node))
-    push!(dependencies, node)
-
-    while !isempty(current_refs)
-        node = pop!(current_refs)
-        istilde(node) && continue
-        
-        new_refs = referenced(node)
-        (node ∈ candidates || node ∈ dependencies) && push!(dependencies, node)
-        union!(current_refs, new_refs)
-    end
-end
-
-
 function model_argument_deps(node)
     # From the beginning of the trace,
     # ```
@@ -154,6 +139,31 @@ function model_argument_deps(node)
     return deps
 end
 
+function add_candidates!(dependencies, candidates, mutants, node)
+    # all all candidates that are backwards references of this node to the proper dependencies
+    current_refs = Vector{AbstractNode}(referenced(node))
+    push!(dependencies, node)
+
+    while !isempty(current_refs)
+        node = pop!(current_refs)
+        @show node, 1
+        node ∈ dependencies && continue
+        @show node, 1
+        
+        if node ∈ candidates
+            push!(dependencies, node)
+            union!(current_refs, referenced(node))
+        end
+        
+        if haskey(mutants, node)
+            @show mutants[node]
+            push!(dependencies, node)
+            union!(current_refs, mutants[node])
+        end
+    end
+end
+
+
 
 const MutatingFunctions = Union{typeof(setindex!), typeof(push!)}
 
@@ -164,10 +174,13 @@ function strip_dependencies(node::NestedCallNode)
     # "dependencies" are nodes that are in the dependency graph for sure.
     # "candidates" are nodes that follow a dependency node; are included as dependencies, if the
     # chain ends up in a dependency node again (e.g., x ~ D, y = f(x), z ~ D2(y)).
+    # "mutants" are backedges (from mutated to mutators) in the dependency graph resulting from
+    # later operations mutating earlier values(e.g, x = zeros(), x[1] ~ D)
     
     dependencies = model_argument_deps(node)
     # dependencies = Vector{AbstractNode}()
     candidates = Set{AbstractNode}()
+    mutants = Dict{AbstractNode, Vector{AbstractNode}}()
 
     for child in getchildren(node)
         info = tilde_parameters(child)
@@ -178,8 +191,8 @@ function strip_dependencies(node::NestedCallNode)
             # Go backward and make all candidates between this and other dependencies
             # dependencies as well
             vn, dist, value = info
-            dist isa TapeReference && add_candidates!(dependencies, candidates, dist[])
-            value isa TapeReference && add_candidates!(dependencies, candidates, value[])
+            dist isa TapeReference && add_candidates!(dependencies, candidates, mutants, dist[])
+            value isa TapeReference && add_candidates!(dependencies, candidates, mutants, value[])
         else
             # non-tilde node: make candidate, if any parent is a candidate
             if any(r ∈ candidates || r ∈ dependencies for r in referenced(child))
@@ -187,11 +200,14 @@ function strip_dependencies(node::NestedCallNode)
                 
                 if child isa CallingNode{<:MutatingFunctions}
                     # if the candidate is mutating, also make the mutated object a candidate
+                    # and record the backedge from the mutated one to 
                     mutated = child.call.arguments[1]
-                    # mutated isa TapeReference && add_candidates!(dependencies, candidates, mutated[])
-                    push!(dependencies, mutated[])
+                    if mutated isa TapeReference
+                        push!(candidates, mutated[])
+                        push!(get!(Vector{AbstractNode}, mutants, mutated[]), child)
+                        @show mutants
+                    end
                 end
-                
             end
         end
     end
