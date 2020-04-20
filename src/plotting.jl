@@ -1,6 +1,7 @@
 using IRTracker.GraphViz
 
 deps(::Constant) = Reference[]
+deps(::Argument) = Reference[]
 deps(node::Assumption) = deps(node.dist)
 deps(node::Observation) = deps(node.dist)
 deps(node::Call) = [arg for arg in node.args if arg isa Reference]
@@ -16,8 +17,13 @@ function pushnode!(stmts, r, node::Call)
     push!(stmts, GraphViz.Node(string(r.name), label=label, shape="rectangle"))
 end
 function pushnode!(stmts, r, node::Union{Assumption, Observation})
-    label = escape_string("$r = $(node.vn) ~ $(node.dist)")
+    dist_args = join(node.dist.args, ", ")
+    label = escape_string("$r = $(node.vn) ~ $(node.dist.f)($dist_args)")
     push!(stmts, GraphViz.Node(string(r.name), label=label, shape="circle"))
+end
+function pushnode!(stmts, r, node::Argument)
+    label = escape_string("$r = $(node.name) = $(node.value)")
+    push!(stmts, GraphViz.Node(string(r.name), label=label, shape="rectangle"))
 end
 
 

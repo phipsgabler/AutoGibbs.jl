@@ -93,4 +93,13 @@ varnames(graph) = Set(tilde.vn
     graph6 = trackdependencies(test6(1.4, 1.2))
     @test varnames(graph6) == Set([@varname(λ), @varname(m), @varname(x), @varname(y)])
 
+    
+    @model function test7(x)
+        s ~ Gamma(1.0, 1.0)
+        x[1] ~ Normal(0.0, s)
+        for i in 2:length(x)
+            x[i] ~ Normal(x[i-1], s)
+        end
+    end
+
 end

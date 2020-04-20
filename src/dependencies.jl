@@ -1,7 +1,7 @@
 using DynamicPPL
 using Distributions
 
-export dependencies, makegraph, showgraph, trackdependencies
+export strip_dependencies, makegraph, showgraph, trackdependencies
 
 
 const CallingNode{F} = Union{PrimitiveCallNode{<:Any, F}, NestedCallNode{<:Any, F}}
@@ -14,13 +14,13 @@ istilde(::CallingNode{typeof(DynamicPPL.dot_tilde_observe)}) = true
 istilde(::AbstractNode) = false
 
 
-function extract(node::CallingNode{typeof(DynamicPPL.tilde_assume)})
+function tilde_parameters(node::CallingNode{typeof(DynamicPPL.tilde_assume)})
     args = node.call.arguments # ctx, sampler, right, vn, inds, vi
     vn, dist, value = args[4], args[3], getvalue(node)
     return vn, dist, TapeConstant(value)
 end
 
-function extract(node::CallingNode{typeof(DynamicPPL.tilde_observe)})
+function tilde_parameters(node::CallingNode{typeof(DynamicPPL.tilde_observe)})
     args = node.call.arguments
     if length(args) == 7
         # ctx, sampler, right, left, vname, vinds, vi
@@ -33,13 +33,13 @@ function extract(node::CallingNode{typeof(DynamicPPL.tilde_observe)})
     end
 end
 
-function extract(node::CallingNode{typeof(DynamicPPL.dot_tilde_assume)})
+function tilde_parameters(node::CallingNode{typeof(DynamicPPL.dot_tilde_assume)})
     args = node.call.arguments # ctx, sampler, right, left, vn, inds, vi
     vn, dist, value = args[5], args[3], args[4]
     return vn, dist, value
 end
 
-function extract(node::CallingNode{typeof(DynamicPPL.dot_tilde_observe)})
+function tilde_parameters(node::CallingNode{typeof(DynamicPPL.dot_tilde_observe)})
     args = node.call.arguments
     if length(args) == 7
         # ctx, sampler, right, left, vn, inds, vi
@@ -52,40 +52,159 @@ function extract(node::CallingNode{typeof(DynamicPPL.dot_tilde_observe)})
     end
 end
 
-extract(node::AbstractNode) = nothing
+tilde_parameters(node::AbstractNode) = nothing
 
 
-function dist_backward!(deps, node::AbstractNode)
+# function dist_backward!(deps, node::AbstractNode)
+#     current_refs = Vector{AbstractNode}(referenced(node))
+#     push!(deps, node)
+
+#     while !isempty(current_refs)
+#         node = pop!(current_refs)
+#         istilde(node) && continue
+        
+#         new_refs = referenced(node)
+#         push!(deps, node)
+#         union!(current_refs, new_refs)
+#     end
+
+#     return deps
+# end
+
+
+# function dist_forward!(deps, node::AbstractNode)
+#     current_refs = Vector{AbstractNode}(dependents(node))
+#     push!(deps, node)
+
+#     while !isempty(current_refs)
+#         node = pop!(current_refs)
+#         istilde(node) && continue
+        
+#         new_refs = dependents(node)
+#         push!(deps, node)
+#         union!(current_refs, new_refs)
+#     end
+
+#     return deps
+# end
+
+# function strip_dependencies(node::NestedCallNode)
+#     deps = Vector{AbstractNode}()
+#     for child in getchildren(node)
+#         bb = tilde_parameters(child)
+#         if !isnothing(bb)
+#             vn, dist, value = bb
+#             push!(deps, child)
+#             if dist isa TapeReference
+#                 dist_backward!(deps, dist[])
+#             end
+#             if value isa TapeReference
+#                 dist_backward!(deps, value[])
+#             end
+#         end
+#     end
+
+#     return sort(deps; by=n -> getposition(n.info)) |> unique
+# end
+
+
+function add_candidates!(dependencies, candidates, node)
     current_refs = Vector{AbstractNode}(referenced(node))
-    push!(deps, node)
+    push!(dependencies, node)
 
     while !isempty(current_refs)
         node = pop!(current_refs)
         istilde(node) && continue
         
         new_refs = referenced(node)
-        push!(deps, node)
+        (node ∈ candidates || node ∈ dependencies) && push!(dependencies, node)
         union!(current_refs, new_refs)
+    end
+end
+
+
+function model_argument_deps(node)
+    # From the beginning of the trace,
+    # ```
+    # @1: [Arg:§1:%1] @9#1 = ##evaluator#462
+    # @2: [Arg:§1:%2] @9#2 = Model{...}
+    # @3: [Arg:§1:%3] @9#3 = VarInfo (1 variable (s), dimension 1; logp: -3.957)
+    # @4: [Arg:§1:%4] @9#4 = SampleFromPrior()
+    # @5: [Arg:§1:%5] @9#5 = DefaultContext()
+    # @6: [§1:%6] ⟨getproperty⟩(@2, ⟨:args⟩) = (x = [0.5, 1.1],)
+    # @7: [§1:%7] ⟨getproperty⟩(@6, ⟨:x⟩) = [0.5, 1.1]
+    # @8: [§1:%8] ⟨DynamicPPL.matchingvalue⟩(@4, @3, @7) = [0.5, 1.1]
+    # ```
+    # extract only the `getproperty(@6, ⟨:x⟩)` line (for each argument).
+
+    deps = Vector{AbstractNode}()
+    model_node = getchildren(node)[2]
+    args_nodes = Vector{AbstractNode}()
+    
+    for child in getchildren(node)
+        if child isa CallingNode{typeof(getproperty)}
+            if getvalue(child.call.arguments[2]) == :args && child.call.arguments[1][] == model_node
+                push!(args_nodes, child)
+            elseif child.call.arguments[1][] ∈ args_nodes
+                push!(deps, child)
+            end
+        end
     end
 
     return deps
 end
 
-function dependencies(node::NestedCallNode)
-    deps = Vector{AbstractNode}()
+
+const MutatingFunctions = Union{typeof(setindex!), typeof(push!)}
+
+function strip_dependencies(node::NestedCallNode)
+    # Slice out only those nodes that are between tildes or model arguments,
+    # taking some care to get mutated things (vector + `setindex!` etc.) right.
+
+    # "dependencies" are nodes that are in the dependency graph for sure.
+    # "candidates" are nodes that follow a dependency node; are included as dependencies, if the
+    # chain ends up in a dependency node again (e.g., x ~ D, y = f(x), z ~ D2(y)).
+    
+    dependencies = model_argument_deps(node)
+    # dependencies = Vector{AbstractNode}()
+    candidates = Set{AbstractNode}()
+
     for child in getchildren(node)
-        bb = extract(child)
-        if !isnothing(bb)
-            vn, dist, value = bb
-            push!(deps, child)
-            if dist isa TapeReference
-                dist_backward!(deps, dist[])
+        info = tilde_parameters(child)
+        if !isnothing(info)
+            # tilde node: is a dependency for sure
+            push!(dependencies, child)
+
+            # Go backward and make all candidates between this and other dependencies
+            # dependencies as well
+            vn, dist, value = info
+            dist isa TapeReference && add_candidates!(dependencies, candidates, dist[])
+            value isa TapeReference && add_candidates!(dependencies, candidates, value[])
+        else
+            # non-tilde node: make candidate, if any parent is a candidate
+            if any(r ∈ candidates || r ∈ dependencies for r in referenced(child))
+                push!(candidates, child)
+                
+                if child isa CallingNode{<:MutatingFunctions}
+                    # if the candidate is mutating, also make the mutated object a candidate
+                    mutated = child.call.arguments[1]
+                    # mutated isa TapeReference && add_candidates!(dependencies, candidates, mutated[])
+                    push!(dependencies, mutated[])
+                end
+                
             end
         end
     end
 
-    return sort(deps; by=n -> getposition(n.info)) |> unique
+    return sort(dependencies; by=n -> getposition(n.info)) |> unique
 end
+
+
+
+
+
+
+
 
 
 
@@ -120,6 +239,11 @@ struct Constant{T} <: DepNode
     value::T
 end
 
+struct Argument{T} <: DepNode
+    name::String
+    value::T
+end
+
 
 function newname!(names, node)
     newname = Reference(length(names) + 1)
@@ -137,7 +261,7 @@ end
 
 function pushtilde!(graph, names, node::CallingNode, tildetype)
     name = newname!(names, node)
-    vn_r, dist_r, value_r = extract(node)
+    vn_r, dist_r, value_r = tilde_parameters(node)
     vn = getvalue(vn_r)
     if dist_r isa TapeReference
         ref = names[dist_r.index]
@@ -177,19 +301,32 @@ function pushnode!(graph, names, node::CallingNode{<:Union{typeof(DynamicPPL.til
     return pushtilde!(graph, names, node, Observation)
 end
 
-function pushnode!(graph, names, node::CallingNode{typeof(getindex)})
-    # special handling to get rid of the tuple result of `tilde_assume`
+# function pushnode!(graph, names, node::CallingNode{typeof(getindex)})
+#     # special handling to get rid of the tuple result of `tilde_assume`
     
-    # array_ref = convertvalue(names, node.call.arguments[1])
-    # if graph[array_ref] isa Assumption
-    if node.call.arguments[1] isa CallingNode{<:Union{typeof(DynamicPPL.tilde_assume),
-                                                      typeof(DynamicPPL.dot_tilde_assume)}}
-        # when `getindex(x, ix...)` goes to an assumption `x`, then we overwrite the reference 
-        names[getposition(node)] = names[node.call.arguments[1].value]
-    else
-        # fall back to default case
-        invoke(pushnode!, Tuple{typeof(graph), typeof(names), CallingNode}, graph, names, node)
-    end
+#     # array_ref = convertvalue(names, node.call.arguments[1])
+#     # if graph[array_ref] isa Assumption
+#     if node.call.arguments[1] isa CallingNode{<:Union{typeof(DynamicPPL.tilde_assume),
+#                                                       typeof(DynamicPPL.dot_tilde_assume)}}
+#         # when `getindex(x, ix...)` goes to an assumption `x`, then we overwrite the reference 
+#         names[getposition(node)] = names[node.call.arguments[1].value]
+#     else
+#         # fall back to default case
+#         invoke(pushnode!, Tuple{typeof(graph), typeof(names), CallingNode}, graph, names, node)
+#     end
+# end
+
+function pushnode!(graph, names, node::CallingNode{typeof(DynamicPPL.matchingvalue)})
+    # special handling for model arguments
+    # @7: ⟨getproperty⟩(@6, ⟨:x⟩) = [0.5, 1.1]                                                                                                                                                       
+    # @8: ⟨DynamicPPL.matchingvalue⟩(@4, @3, @7) = [0.5, 1.1]
+    
+    getproperty_ref = node.call.arguments[3]
+    delete!(graph, names[getproperty_ref.index])
+    
+    argname = getvalue(getproperty_ref[].call.arguments[2])
+    name = newname!(names, node)
+    graph[name] = Argument(string(argname), getvalue(node))
 end
 
 function pushnode!(graph, names, node::ConstantNode)
@@ -210,7 +347,7 @@ function pushnode!(graph, names, node::ArgumentNode)
 end
 
 
-convertvalue(names, value::TapeReference) = names[value.index]
+convertvalue(names, value::TapeReference) = get(names, value.index, getvalue(value))
 convertvalue(names, value::TapeConstant) = getvalue(value)
 
 function makegraph(slice::Vector{<:AbstractNode})
@@ -227,7 +364,7 @@ end
 
 function trackdependencies(model)
     trace = trackmodel(model)
-    dependency_slice = dependencies(strip_model_layers(trace))
+    dependency_slice = strip_dependencies(strip_model_layers(trace))
     return makegraph(dependency_slice)
 end
 
@@ -237,6 +374,7 @@ Base.show(io::IO, expr::Union{Assumption, Observation}) =
     print(io, expr.vn, " ~ ", expr.dist.f, "(", join(expr.dist.args, ", "), ") = ", expr.value)
 Base.show(io::IO, expr::Call) = print(io, expr.f, "(", join(expr.args, ", "), ") = ", expr.value)
 Base.show(io::IO, expr::Constant) = print(io, expr.value)
+Base.show(io::IO, expr::Argument) = print(io, expr.name, " = ", expr.value)
 
 
 function showgraph(graph)
