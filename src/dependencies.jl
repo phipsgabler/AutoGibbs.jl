@@ -108,7 +108,7 @@ tilde_parameters(node::AbstractNode) = nothing
 # end
 
 
-function model_argument_deps(node)
+function model_argument_nodes(node)
     # From the beginning of the trace,
     # ```
     # @1: [Arg:§1:%1] @9#1 = ##evaluator#462
@@ -122,21 +122,23 @@ function model_argument_deps(node)
     # ```
     # extract only the `getproperty(@6, ⟨:x⟩)` line (for each argument).
 
-    deps = Vector{AbstractNode}()
+    argument_nodes = Vector{AbstractNode}()
     model_node = getchildren(node)[2]
-    args_nodes = Vector{AbstractNode}()
+    modelargs_nodes = Vector{AbstractNode}()
     
     for child in getchildren(node)
         if child isa CallingNode{typeof(getproperty)}
             if getvalue(child.call.arguments[2]) == :args && child.call.arguments[1][] == model_node
-                push!(args_nodes, child)
-            elseif child.call.arguments[1][] ∈ args_nodes
-                push!(deps, child)
+                push!(modelargs_nodes, child)
+            elseif child.call.arguments[1][] ∈ modelargs_nodes
+                # a `getproperty(args, symbol)` whose parent is a `args = getproperty(model, :args)`
+                # is a model argument, for sure
+                push!(argument_nodes, child)
             end
         end
     end
 
-    return deps
+    return argument_nodes
 end
 
 function add_candidates!(dependencies, candidates, mutants, node)
@@ -146,9 +148,7 @@ function add_candidates!(dependencies, candidates, mutants, node)
 
     while !isempty(current_refs)
         node = pop!(current_refs)
-        @show node, 1
         node ∈ dependencies && continue
-        @show node, 1
         
         if node ∈ candidates
             push!(dependencies, node)
@@ -156,7 +156,6 @@ function add_candidates!(dependencies, candidates, mutants, node)
         end
         
         if haskey(mutants, node)
-            @show mutants[node]
             push!(dependencies, node)
             union!(current_refs, mutants[node])
         end
@@ -167,48 +166,53 @@ end
 
 const MutatingFunctions = Union{typeof(setindex!), typeof(push!)}
 
-function strip_dependencies(node::NestedCallNode)
+function strip_dependencies(root::NestedCallNode)
     # Slice out only those nodes that are between tildes or model arguments,
     # taking some care to get mutated things (vector + `setindex!` etc.) right.
 
-    # "dependencies" are nodes that are in the dependency graph for sure.
+    # "dependencies" are nodes that are in the dependency graph for sure (i.e., tildes).
     # "candidates" are nodes that follow a dependency node; are included as dependencies, if the
-    # chain ends up in a dependency node again (e.g., x ~ D, y = f(x), z ~ D2(y)).
-    # "mutants" are backedges (from mutated to mutators) in the dependency graph resulting from
-    # later operations mutating earlier values(e.g, x = zeros(), x[1] ~ D)
+    # chain ends up in a dependency node again (e.g., x ~ D, y = f(x), z ~ D2(y)) -- this is
+    # what `add_candidates!` does by working backwards.
+    # "mutants" are backedges (from mutated to mutators) in the dependency graph, resulting from
+    # later operations mutating earlier values(e.g, z = zeros(), z[1] ~ D, x ~ D2(z[1])).
     
-    dependencies = model_argument_deps(node)
+    dependencies = model_argument_nodes(root)
     # dependencies = Vector{AbstractNode}()
     candidates = Set{AbstractNode}()
     mutants = Dict{AbstractNode, Vector{AbstractNode}}()
 
-    for child in getchildren(node)
+    for child in getchildren(root)
         info = tilde_parameters(child)
         if !isnothing(info)
             # tilde node: is a dependency for sure
             push!(dependencies, child)
-
-            # Go backward and make all candidates between this and other dependencies
-            # dependencies as well
-            vn, dist, value = info
-            dist isa TapeReference && add_candidates!(dependencies, candidates, mutants, dist[])
-            value isa TapeReference && add_candidates!(dependencies, candidates, mutants, value[])
         else
-            # non-tilde node: make candidate, if any parent is a candidate
+            # non-tilde node: make candidate, if any parent is a candidate or dependency
             if any(r ∈ candidates || r ∈ dependencies for r in referenced(child))
                 push!(candidates, child)
                 
                 if child isa CallingNode{<:MutatingFunctions}
                     # if the candidate is mutating, also make the mutated object a candidate
-                    # and record the backedge from the mutated one to 
+                    # and record the backedge from the mutated one to:
+                    # `n = setindex!(x, v, i)` makes `x` a candidate, and a backedge from `x` to `n`.
                     mutated = child.call.arguments[1]
                     if mutated isa TapeReference
                         push!(candidates, mutated[])
                         push!(get!(Vector{AbstractNode}, mutants, mutated[]), child)
-                        @show mutants
                     end
                 end
             end
+        end
+    end
+
+    # Go over nodes once more and turn candidates between dependencies into dependencies, too.
+    for child in getchildren(root)
+        info = tilde_parameters(child)
+        if !isnothing(info)
+            vn, dist, value = info
+            dist isa TapeReference && add_candidates!(dependencies, candidates, mutants, dist[])
+            value isa TapeReference && add_candidates!(dependencies, candidates, mutants, value[])
         end
     end
 
@@ -279,6 +283,7 @@ function pushtilde!(graph, names, node::CallingNode, tildetype)
     name = newname!(names, node)
     vn_r, dist_r, value_r = tilde_parameters(node)
     vn = getvalue(vn_r)
+    
     if dist_r isa TapeReference
         ref = names[dist_r.index]
         if haskey(graph, ref)
@@ -294,6 +299,7 @@ function pushtilde!(graph, names, node::CallingNode, tildetype)
         # distribution was a constant in the IR
         dist = Constant(getvalue(dist_r))
     end
+    
     value = getvalue(value_r)
 
     graph[name] = tildetype(vn, dist, value)
