@@ -55,59 +55,6 @@ end
 tilde_parameters(node::AbstractNode) = nothing
 
 
-# function dist_backward!(deps, node::AbstractNode)
-#     current_refs = Vector{AbstractNode}(referenced(node))
-#     push!(deps, node)
-
-#     while !isempty(current_refs)
-#         node = pop!(current_refs)
-#         istilde(node) && continue
-        
-#         new_refs = referenced(node)
-#         push!(deps, node)
-#         union!(current_refs, new_refs)
-#     end
-
-#     return deps
-# end
-
-
-# function dist_forward!(deps, node::AbstractNode)
-#     current_refs = Vector{AbstractNode}(dependents(node))
-#     push!(deps, node)
-
-#     while !isempty(current_refs)
-#         node = pop!(current_refs)
-#         istilde(node) && continue
-        
-#         new_refs = dependents(node)
-#         push!(deps, node)
-#         union!(current_refs, new_refs)
-#     end
-
-#     return deps
-# end
-
-# function strip_dependencies(node::NestedCallNode)
-#     deps = Vector{AbstractNode}()
-#     for child in getchildren(node)
-#         bb = tilde_parameters(child)
-#         if !isnothing(bb)
-#             vn, dist, value = bb
-#             push!(deps, child)
-#             if dist isa TapeReference
-#                 dist_backward!(deps, dist[])
-#             end
-#             if value isa TapeReference
-#                 dist_backward!(deps, value[])
-#             end
-#         end
-#     end
-
-#     return sort(deps; by=n -> getposition(n.info)) |> unique
-# end
-
-
 function model_argument_nodes(node)
     # From the beginning of the trace,
     # ```
@@ -218,15 +165,6 @@ function strip_dependencies(root::NestedCallNode)
 
     return sort(dependencies; by=n -> getposition(n.info)) |> unique
 end
-
-
-
-
-
-
-
-
-
 
 
 
