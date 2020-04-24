@@ -237,8 +237,8 @@ function pushtilde!(graph, names, node::CallingNode, tildetype)
         # distribution was a constant in the IR
         dist = Constant(getvalue(dist_r))
     end
-    
-    value = getvalue(value_r)
+
+    value = convertvalue(names, value_r)
 
     graph[name] = tildetype(vn, dist, value)
     return graph
@@ -313,6 +313,7 @@ convertvalue(names, value::TapeConstant) = getvalue(value)
 function makegraph(slice::Vector{<:AbstractNode})
     graph = Dict{Reference, DepNode}()  # resulting graph
     names = Dict{Int, Reference}()      # mapping from node indices to new references
+    arrays = Dict{Reference}
     
     for node in slice
         pushnode!(graph, names, node)
@@ -329,9 +330,14 @@ function trackdependencies(model)
 end
 
 
+shortname(d::Type{<:Distribution}) = string(nameof(d))
+shortname(other) = string(other)
+
 Base.show(io::IO, r::Reference) = print(io, "%", r.name)
-Base.show(io::IO, expr::Union{Assumption, Observation}) =
-    print(io, expr.vn, " ~ ", expr.dist.f, "(", join(expr.dist.args, ", "), ") = ", expr.value)
+Base.show(io::IO, expr::Assumption) =
+    print(io, expr.vn, " ~ ", shortname(expr.dist.f), "(", join(expr.dist.args, ", "), ") = ", expr.value)
+Base.show(io::IO, expr::Observation) =
+    print(io, expr.vn, " ~ ", shortname(expr.dist.f), "(", join(expr.dist.args, ", "), ") = ", expr.value)
 Base.show(io::IO, expr::Call) = print(io, expr.f, "(", join(expr.args, ", "), ") = ", expr.value)
 Base.show(io::IO, expr::Constant) = print(io, expr.value)
 Base.show(io::IO, expr::Argument) = print(io, expr.name, " = ", expr.value)
