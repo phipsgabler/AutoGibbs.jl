@@ -14,6 +14,16 @@ istilde(::CallingNode{typeof(DynamicPPL.dot_tilde_observe)}) = true
 istilde(::AbstractNode) = false
 
 
+"""
+    tilde_parameters(node)
+
+Extract a tuple of variablen name, distribution, and value argument of any tilde call.  
+
+The variable name can be `nothing` for constant observations.  The whole value is `nothing` for 
+nodes that are not tilde calls.
+"""
+tilde_parameters(node::AbstractNode) = nothing
+
 function tilde_parameters(node::CallingNode{typeof(DynamicPPL.tilde_assume)})
     args = node.call.arguments # ctx, sampler, right, vn, inds, vi
     vn, dist, value = args[4], args[3], getvalue(node)
@@ -52,10 +62,13 @@ function tilde_parameters(node::CallingNode{typeof(DynamicPPL.dot_tilde_observe)
     end
 end
 
-tilde_parameters(node::AbstractNode) = nothing
 
+"""
+    model_argument_nodes(root)
 
-function model_argument_nodes(node)
+Extract from a stripped model trace all model argument `getindex` calls.
+"""
+function model_argument_nodes(root)
     # From the beginning of the trace,
     # ```
     # @1: [Arg:§1:%1] @9#1 = ##evaluator#462
@@ -70,10 +83,10 @@ function model_argument_nodes(node)
     # extract only the `getproperty(@6, ⟨:x⟩)` line (for each argument).
 
     argument_nodes = Vector{AbstractNode}()
-    model_node = getchildren(node)[2]
+    model_node = getchildren(root)[2]
     modelargs_nodes = Vector{AbstractNode}()
     
-    for child in getchildren(node)
+    for child in getchildren(root)
         if child isa CallingNode{typeof(getproperty)}
             if getvalue(child.call.arguments[2]) == :args && child.call.arguments[1][] == model_node
                 push!(modelargs_nodes, child)
@@ -88,8 +101,13 @@ function model_argument_nodes(node)
     return argument_nodes
 end
 
+
+"""
+    add_candidates!(dependencies, candidates, mutants, node)
+
+Traverse refernces of `node` backwards and turn the reached `candidates` into `dependencies`.
+"""
 function add_candidates!(dependencies, candidates, mutants, node)
-    # all all candidates that are backwards references of this node to the proper dependencies
     current_refs = Vector{AbstractNode}(referenced(node))
     push!(dependencies, node)
 
@@ -111,12 +129,13 @@ end
 
 
 
-const MutatingFunctions = Union{typeof(setindex!), typeof(push!)}
+"""
+    strip_dependencies(root)
 
-function strip_dependencies(root::NestedCallNode)
-    # Slice out only those nodes that are between tildes or model arguments,
-    # taking some care to get mutated things (vector + `setindex!` etc.) right.
-
+Slice out only those nodes that are between tildes or model arguments, taking some care to get
+mutated things (vector + `setindex!` etc.) right.
+"""
+function strip_dependencies(root)
     # "dependencies" are nodes that are in the dependency graph for sure (i.e., tildes).
     # "candidates" are nodes that follow a dependency node; are included as dependencies, if the
     # chain ends up in a dependency node again (e.g., x ~ D, y = f(x), z ~ D2(y)) -- this is
@@ -139,8 +158,8 @@ function strip_dependencies(root::NestedCallNode)
             if any(r ∈ candidates || r ∈ dependencies for r in referenced(child))
                 push!(candidates, child)
                 
-                if child isa CallingNode{<:MutatingFunctions}
-                    # if the candidate is mutating, also make the mutated object a candidate
+                if child isa CallingNode{typeof(setindex!)}
+                    # if the candidate is mutating an array, also make the mutated object a candidate
                     # and record the backedge from the mutated one to:
                     # `n = setindex!(x, v, i)` makes `x` a candidate, and a backedge from `x` to `n`.
                     mutated = child.call.arguments[1]
@@ -163,26 +182,19 @@ function strip_dependencies(root::NestedCallNode)
         end
     end
 
-    return sort(dependencies; by=n -> getposition(n.info)) |> unique
+    return sort(dependencies; by=getposition) |> unique
 end
 
 
-
-
-struct Reference
-    name::Int
-end
 
 abstract type DepNode end
 
 struct Assumption{T, TDist<:DepNode} <: DepNode
-    vn::VarName
     dist::TDist
     value::T
 end
 
 struct Observation{T, TDist<:DepNode} <: DepNode
-    vn::VarName
     dist::TDist
     value::T
 end
@@ -203,27 +215,97 @@ struct Argument{T} <: DepNode
 end
 
 
-function newname!(names, node)
-    newname = Reference(length(names) + 1)
-    names[getposition(node)] = newname
-    return newname
-end
-    
+shortname(d::Type{<:Distribution}) = string(nameof(d))
+shortname(other) = string(other)
 
-function makecallnode(names, node::CallingNode)
-    f = convertvalue(names, node.call.f)
-    args = convertvalue.(Ref(names), (node.call.arguments..., something(node.call.varargs, ())...))
+Base.show(io::IO, expr::Assumption) =
+    print(io, shortname(expr.dist.f), "(", join(expr.dist.args, ", "), ") → ", expr.value)
+Base.show(io::IO, expr::Observation) =
+    print(io, shortname(expr.dist.f), "(", join(expr.dist.args, ", "), ") → ", expr.value)
+Base.show(io::IO, expr::Call) = print(io, expr.f, "(", join(expr.args, ", "), ") → ", expr.value)
+Base.show(io::IO, expr::Constant) = print(io, expr.value)
+Base.show(io::IO, expr::Argument) = print(io, expr.name, " → ", expr.value)
+
+
+struct Reference
+    number::Int
+end
+
+Base.show(io::IO, r::Reference) = print(io, "%", r.number)
+Base.isless(q::Reference, r::Reference) = isless(q.number, r.number)
+Base.hash(r::Reference, h::UInt) = hash(r.number, h)
+Base.:(==)(q::Reference, r::Reference) = q.number == r.number
+
+
+struct Graph
+    statements::Dict{Union{Reference, VarName}, DepNode}
+    reference_mapping::Dict{AbstractNode, Reference}
+end
+
+Graph() = Graph(Dict{Reference, DepNode}(), Dict{AbstractNode, Reference}())
+
+Base.IteratorSize(::Type{Graph}) = Base.HasLength()
+Base.length(graph::Graph) = length(graph.statements)
+Base.IteratorEltype(::Type{Graph}) = Base.HasEltype()
+Base.eltype(graph::Graph) = eltype(graph.statements)
+Base.getindex(graph::Graph, ref) = graph.statements[ref]
+Base.setindex!(graph::Graph, depnode, ref) = graph.statements[ref] = depnode
+Base.haskey(graph::Graph, ref) = haskey(graph.statements, ref)
+Base.delete!(graph::Graph, ref) = delete!(graph.statements, ref)
+
+function _makewrappediter(graph::Graph)
+    stmts = sort(graph.statements)
+    return stmts, iterate(stmts)
+end
+
+function Base.iterate(graph::Graph, (stmts, iter)=_makewrappediter(graph))
+    if !isnothing(iter)
+        el, state = iter
+        return el, (stmts, iterate(stmts, state))
+    else
+        return nothing
+    end
+end
+
+
+getmapping(graph::Graph, node) = graph.reference_mapping[node]
+setmapping!(graph::Graph, (node, ref)::Pair) = graph.reference_mapping[node] = ref
+
+function makereference!(graph, node)
+    newref = Reference(length(graph.reference_mapping) + 1)
+    setmapping!(graph, node => newref)
+    return newref
+end
+
+function Base.show(io::IO, graph::Graph)
+    for (ref, dnode) in graph
+        if ref isa Reference
+            println(io, ref, " = ", dnode)
+        else
+            println(io, ref, " ~ ", dnode)
+        end
+    end
+end
+
+
+
+convertvalue(graph, texpr::TapeReference) = get(graph.reference_mapping, texpr[], getvalue(texpr))
+convertvalue(graph, texpr::TapeConstant) = getvalue(texpr)
+
+
+function makecallnode(graph, node::CallingNode)
+    f = convertvalue(graph, node.call.f)
+    args = convertvalue.(Ref(graph), (node.call.arguments..., something(node.call.varargs, ())...))
     return Call(getvalue(node), f, args)
 end
 
 
-function pushtilde!(graph, names, node::CallingNode, tildetype)
-    name = newname!(names, node)
-    vn_r, dist_r, value_r = tilde_parameters(node)
+function pushtilde!(graph, callingnode, maketilde)
+    vn_r, dist_r, value_r = tilde_parameters(callingnode)
     vn = getvalue(vn_r)
     
     if dist_r isa TapeReference
-        ref = names[dist_r.index]
+        ref = getmapping(graph, dist_r[])
         if haskey(graph, ref)
             # move the separeate distribution call into the node and delete it from the graph
             dist = graph[ref]
@@ -231,95 +313,74 @@ function pushtilde!(graph, names, node::CallingNode, tildetype)
         else
             # the distribution node existed, but has already been deleted, so we reconstruct it
             # (obscure case when one distribution reference is sampled from twice)
-            dist = makecallnode(names, dist_r[])
+            dist = makecallnode(graph, dist_r[])
         end
     else
         # distribution was a constant in the IR
         dist = Constant(getvalue(dist_r))
     end
 
-    value = convertvalue(names, value_r)
+    value = convertvalue(graph, value_r)
 
-    graph[name] = tildetype(vn, dist, value)
+    ref = makereference!(graph, callingnode)
+    graph[ref] = maketilde(dist, value)
     return graph
 end
 
 
-function pushnode!(graph, names, node::CallingNode)
-    name = newname!(names, node)
-    graph[name] = makecallnode(names, node)
+function pushnode!(graph, node::CallingNode)
+    ref = makereference!(graph, node)
+    graph[ref] = makecallnode(graph, node)
     return graph
 end
 
-function pushnode!(graph, names, node::CallingNode{<:Union{typeof(DynamicPPL.tilde_assume),
-                                                           typeof(DynamicPPL.dot_tilde_assume)}})
-    return pushtilde!(graph, names, node, Assumption)
+function pushnode!(graph, node::CallingNode{<:Union{typeof(DynamicPPL.tilde_assume),
+                                                    typeof(DynamicPPL.dot_tilde_assume)}})
+    return pushtilde!(graph, node, Assumption)
 end
 
-function pushnode!(graph, names, node::CallingNode{<:Union{typeof(DynamicPPL.tilde_observe),
-                                                           typeof(DynamicPPL.dot_tilde_observe)}})
-    return pushtilde!(graph, names, node, Observation)
+function pushnode!(graph, node::CallingNode{<:Union{typeof(DynamicPPL.tilde_observe),
+                                                    typeof(DynamicPPL.dot_tilde_observe)}})
+    return pushtilde!(graph, node, Observation)
 end
 
-# function pushnode!(graph, names, node::CallingNode{typeof(getindex)})
-#     # special handling to get rid of the tuple result of `tilde_assume`
-    
-#     # array_ref = convertvalue(names, node.call.arguments[1])
-#     # if graph[array_ref] isa Assumption
-#     if node.call.arguments[1] isa CallingNode{<:Union{typeof(DynamicPPL.tilde_assume),
-#                                                       typeof(DynamicPPL.dot_tilde_assume)}}
-#         # when `getindex(x, ix...)` goes to an assumption `x`, then we overwrite the reference 
-#         names[getposition(node)] = names[node.call.arguments[1].value]
-#     else
-#         # fall back to default case
-#         invoke(pushnode!, Tuple{typeof(graph), typeof(names), CallingNode}, graph, names, node)
-#     end
-# end
-
-function pushnode!(graph, names, node::CallingNode{typeof(DynamicPPL.matchingvalue)})
+function pushnode!(graph, node::CallingNode{typeof(DynamicPPL.matchingvalue)})
     # special handling for model arguments
     # @7: ⟨getproperty⟩(@6, ⟨:x⟩) = [0.5, 1.1]                                                                                                                                                       
     # @8: ⟨DynamicPPL.matchingvalue⟩(@4, @3, @7) = [0.5, 1.1]
     
-    getproperty_ref = node.call.arguments[3]
-    delete!(graph, names[getproperty_ref.index])
+    getproperty_node = node.call.arguments[3][]
+    # delete!(graph, getmapping(graph, getproperty_node))
     
-    argname = getvalue(getproperty_ref[].call.arguments[2])
-    name = newname!(names, node)
-    graph[name] = Argument(string(argname), getvalue(node))
+    argname = getvalue(getproperty_node.call.arguments[2])
+    ref = makereference!(graph, node)
+    graph[ref] = Argument(string(argname), getvalue(node))
+    return graph
 end
 
-function pushnode!(graph, names, node::ConstantNode)
-    name = newname!(names, node)
-    graph[name] = Constant(getvalue(node))
+function pushnode!(graph, node::ConstantNode)
+    ref = makereference!(graph, node)
+    graph[ref] = Constant(getvalue(node))
+    return graph
 end
 
-function pushnode!(graph, names, node::ArgumentNode)
+function pushnode!(graph, node::ArgumentNode)
     if !isnothing(node.branch_node)
         # skip branch argument nodes
-        original = referenced(node)[1]
-        names[getposition(node)] = names[getposition(original)]
+        original_ref = getmapping(graph, referenced(node)[1])
+        setmapping!(graph, node => original_ref)
     else
         # function argument nodes are handled like constants
-        name = newname!(names, node)
-        graph[name] = Constant(getvalue(node))
-    end
-end
-
-
-convertvalue(names, value::TapeReference) = get(names, value.index, getvalue(value))
-convertvalue(names, value::TapeConstant) = getvalue(value)
-
-function makegraph(slice::Vector{<:AbstractNode})
-    graph = Dict{Reference, DepNode}()  # resulting graph
-    names = Dict{Int, Reference}()      # mapping from node indices to new references
-    arrays = Dict{Reference}
-    
-    for node in slice
-        pushnode!(graph, names, node)
+        ref = makereference!(graph, node)
+        graph[ref] = Constant(getvalue(node))
     end
 
     return graph
+end
+
+
+function makegraph(slice::Vector{<:AbstractNode})
+    return foldl(pushnode!, slice, init=Graph())
 end
 
 
@@ -327,26 +388,6 @@ function trackdependencies(model)
     trace = trackmodel(model)
     dependency_slice = strip_dependencies(strip_model_layers(trace))
     return makegraph(dependency_slice)
-end
-
-
-shortname(d::Type{<:Distribution}) = string(nameof(d))
-shortname(other) = string(other)
-
-Base.show(io::IO, r::Reference) = print(io, "%", r.name)
-Base.show(io::IO, expr::Assumption) =
-    print(io, expr.vn, " ~ ", shortname(expr.dist.f), "(", join(expr.dist.args, ", "), ") = ", expr.value)
-Base.show(io::IO, expr::Observation) =
-    print(io, expr.vn, " ~ ", shortname(expr.dist.f), "(", join(expr.dist.args, ", "), ") = ", expr.value)
-Base.show(io::IO, expr::Call) = print(io, expr.f, "(", join(expr.args, ", "), ") = ", expr.value)
-Base.show(io::IO, expr::Constant) = print(io, expr.value)
-Base.show(io::IO, expr::Argument) = print(io, expr.name, " = ", expr.value)
-
-
-function showgraph(graph)
-    for (r, c) in sort(graph; by = ref -> ref.name)
-        println(r, ": ", c)
-    end
 end
 
 

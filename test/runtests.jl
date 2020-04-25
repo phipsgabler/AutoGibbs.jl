@@ -50,7 +50,7 @@ varnames(graph) = Set(tilde.vn
     
     graph3 = trackdependencies(test3([1, 0, 1]))
     @test varnames(graph3) == Set([@varname(p), @varname(x), @varname(y), @varname(y),
-                                              @varname(z), @varname(w)])
+                                   @varname(z), @varname(w)])
     
     
     @model function test4(x) 
@@ -64,8 +64,8 @@ varnames(graph) = Set(tilde.vn
     
     graph4 = trackdependencies(test4([1, 1, -1]))
     @test varnames(graph4) == Set([@varname(μ),
-                                              @varname(z[1]), @varname(z[2]), @varname(z[3]),
-                                              @varname(x[1]), @varname(x[2]), @varname(x[3])])
+                                   @varname(z[1]), @varname(z[2]), @varname(z[3]),
+                                   @varname(x[1]), @varname(x[2]), @varname(x[3])])
     
     
     @model function test5(x) 
