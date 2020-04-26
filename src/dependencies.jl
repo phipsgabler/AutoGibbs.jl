@@ -4,6 +4,11 @@ using Distributions
 export strip_dependencies, makegraph, showgraph, trackdependencies
 
 
+try_getindex(expr::TapeReference) = expr[]
+try_getindex(expr::TapeConstant) = getvalue(expr)
+
+
+
 const CallingNode{F} = Union{PrimitiveCallNode{<:Any, F}, NestedCallNode{<:Any, F}}
 
 
@@ -88,9 +93,9 @@ function model_argument_nodes(root)
     
     for child in getchildren(root)
         if child isa CallingNode{typeof(getproperty)}
-            if getvalue(child.call.arguments[2]) == :args && child.call.arguments[1][] == model_node
+            if getvalue(child.call.arguments[2]) == :args && try_getindex(child.call.arguments[1]) == model_node
                 push!(modelargs_nodes, child)
-            elseif child.call.arguments[1][] ∈ modelargs_nodes
+            elseif try_getindex(child.call.arguments[1]) ∈ modelargs_nodes
                 # a `getproperty(args, symbol)` whose parent is a `args = getproperty(model, :args)`
                 # is a model argument, for sure
                 push!(argument_nodes, child)
@@ -149,8 +154,8 @@ function strip_dependencies(root)
     mutants = Dict{AbstractNode, Vector{AbstractNode}}()
 
     for child in getchildren(root)
-        info = tilde_parameters(child)
-        if !isnothing(info)
+        params = tilde_parameters(child)
+        if !isnothing(params)
             # tilde node: is a dependency for sure
             push!(dependencies, child)
         else
@@ -174,9 +179,10 @@ function strip_dependencies(root)
 
     # Go over nodes once more and turn candidates between dependencies into dependencies, too.
     for child in getchildren(root)
-        info = tilde_parameters(child)
-        if !isnothing(info)
-            vn, dist, value = info
+        params = tilde_parameters(child)
+        if !isnothing(params)
+            vn, dist, value = params
+            vn isa TapeReference && add_candidates!(dependencies, candidates, mutants, vn[])
             dist isa TapeReference && add_candidates!(dependencies, candidates, mutants, dist[])
             value isa TapeReference && add_candidates!(dependencies, candidates, mutants, value[])
         end
@@ -187,29 +193,29 @@ end
 
 
 
-abstract type DepNode end
+abstract type Statement end
 
-struct Assumption{T, TDist<:DepNode} <: DepNode
+struct Assumption{T, TDist<:Statement} <: Statement
     dist::TDist
     value::T
 end
 
-struct Observation{T, TDist<:DepNode} <: DepNode
+struct Observation{T, TDist<:Statement} <: Statement
     dist::TDist
     value::T
 end
 
-struct Call{T, TF, TArgs<:Tuple} <: DepNode
+struct Call{T, TF, TArgs<:Tuple} <: Statement
     value::T
     f::TF
     args::TArgs
 end
 
-struct Constant{T} <: DepNode
+struct Constant{T} <: Statement
     value::T
 end
 
-struct Argument{T} <: DepNode
+struct Argument{T} <: Statement
     name::String
     value::T
 end
@@ -218,40 +224,49 @@ end
 shortname(d::Type{<:Distribution}) = string(nameof(d))
 shortname(other) = string(other)
 
-Base.show(io::IO, expr::Assumption) =
-    print(io, shortname(expr.dist.f), "(", join(expr.dist.args, ", "), ") → ", expr.value)
-Base.show(io::IO, expr::Observation) =
-    print(io, shortname(expr.dist.f), "(", join(expr.dist.args, ", "), ") → ", expr.value)
-Base.show(io::IO, expr::Call) = print(io, expr.f, "(", join(expr.args, ", "), ") → ", expr.value)
-Base.show(io::IO, expr::Constant) = print(io, expr.value)
-Base.show(io::IO, expr::Argument) = print(io, expr.name, " → ", expr.value)
+Base.show(io::IO, stmt::Assumption) =
+    print(io, shortname(stmt.dist.f), "(", join(stmt.dist.args, ", "), ") → ", stmt.value)
+Base.show(io::IO, stmt::Observation) =
+    print(io, shortname(stmt.dist.f), "(", join(stmt.dist.args, ", "), ") → ", stmt.value)
+Base.show(io::IO, stmt::Call) = print(io, stmt.f, "(", join(stmt.args, ", "), ") → ", stmt.value)
+Base.show(io::IO, stmt::Constant) = print(io, stmt.value)
+Base.show(io::IO, stmt::Argument) = print(io, stmt.name, " → ", stmt.value)
+
+AutoGibbs.getvalue(stmt::Statement) = stmt.value
 
 
-struct Reference
+struct Reference{TV<:Union{VarName, Nothing}}
     number::Int
+    vn::TV
 end
 
-Base.show(io::IO, r::Reference) = print(io, "%", r.number)
+Reference(number) = Reference(number, nothing)
+
+
+Base.show(io::IO, r::Reference{Nothing}) = print(io, "%", r.number)
+Base.show(io::IO, r::Reference{<:VarName}) = print(io, r.vn)
 Base.isless(q::Reference, r::Reference) = isless(q.number, r.number)
 Base.hash(r::Reference, h::UInt) = hash(r.number, h)
 Base.:(==)(q::Reference, r::Reference) = q.number == r.number
 
 
 struct Graph
-    statements::Dict{Union{Reference, VarName}, DepNode}
+    statements::Dict{Reference, Statement}
     reference_mapping::Dict{AbstractNode, Reference}
 end
 
-Graph() = Graph(Dict{Reference, DepNode}(), Dict{AbstractNode, Reference}())
+Graph() = Graph(Dict{Reference, Statement}(), Dict{AbstractNode, Reference}())
 
 Base.IteratorSize(::Type{Graph}) = Base.HasLength()
 Base.length(graph::Graph) = length(graph.statements)
 Base.IteratorEltype(::Type{Graph}) = Base.HasEltype()
 Base.eltype(graph::Graph) = eltype(graph.statements)
 Base.getindex(graph::Graph, ref) = graph.statements[ref]
-Base.setindex!(graph::Graph, depnode, ref) = graph.statements[ref] = depnode
+Base.setindex!(graph::Graph, stmt, ref) = graph.statements[ref] = stmt
 Base.haskey(graph::Graph, ref) = haskey(graph.statements, ref)
 Base.delete!(graph::Graph, ref) = delete!(graph.statements, ref)
+Base.keys(graph::Graph) = keys(graph.statements)
+Base.values(graph::Graph) = values(graph.statements)
 
 function _makewrappediter(graph::Graph)
     stmts = sort(graph.statements)
@@ -268,29 +283,39 @@ function Base.iterate(graph::Graph, (stmts, iter)=_makewrappediter(graph))
 end
 
 
-getmapping(graph::Graph, node) = graph.reference_mapping[node]
+getmapping(graph::Graph, constant) = constant
+getmapping(graph::Graph, node::AbstractNode) = get(graph.reference_mapping, node, node)
 setmapping!(graph::Graph, (node, ref)::Pair) = graph.reference_mapping[node] = ref
 
-function makereference!(graph, node)
-    newref = Reference(length(graph.reference_mapping) + 1)
+function makereference!(graph, node, vn=nothing)
+    newref = Reference(length(graph.reference_mapping) + 1, vn)
     setmapping!(graph, node => newref)
     return newref
 end
 
 function Base.show(io::IO, graph::Graph)
-    for (ref, dnode) in graph
-        if ref isa Reference
-            println(io, ref, " = ", dnode)
+    for (ref, stmt) in graph
+        if stmt isa Assumption
+            println(io, ref, " ~ ", stmt)
+        elseif stmt isa Observation
+            println(io, ref, " ⩪ ", stmt)
         else
-            println(io, ref, " ~ ", dnode)
+            println(io, ref, " = ", stmt)
         end
     end
 end
 
 
 
-convertvalue(graph, texpr::TapeReference) = get(graph.reference_mapping, texpr[], getvalue(texpr))
-convertvalue(graph, texpr::TapeConstant) = getvalue(texpr)
+try_getvalue(graph, ref::Reference) = getvalue(graph[ref])
+try_getvalue(graph, constant) = constant
+
+function resolve_varname(graph, ref::Reference{<:VarName})
+    var = ref.vn
+    sym = DynamicPPL.getsym(var)
+    indexing = DynamicPPL.getindexing(var)
+    return VarName(sym, Tuple(try_getvalue.(Ref(graph), ix) for ix in indexing))
+end
 
 
 function makecallnode(graph, node::CallingNode)
@@ -299,31 +324,57 @@ function makecallnode(graph, node::CallingNode)
     return Call(getvalue(node), f, args)
 end
 
+convertvalue(graph, expr::TapeReference) = get(graph.reference_mapping, expr[], getvalue(expr))
+convertvalue(graph, expr::TapeConstant) = getvalue(expr)
+
+convertdist(graph, dist_expr::TapeConstant) = Constant(getvalue(dist))
+function convertdist(graph, dist_expr::TapeReference)
+    ref = getmapping(graph, dist_expr[])
+    if haskey(graph, ref)
+        # move the separeate distribution call into the node and delete it from the graph
+        dist = graph[ref]
+        delete!(graph, ref)
+        return dist
+    else
+        # the distribution node existed, but has already been deleted, so we reconstruct it
+        # (obscure case when one distribution reference is sampled from twice)
+        return makecallnode(graph, dist_expr[])
+    end
+end
+
+
+convertvn!(graph, vn_expr::Nothing) = nothing
+convertvn!(graph, vn_expr::TapeConstant) = getvalue(vn_expr)
+function convertvn!(graph, vn_expr::TapeReference)
+    # @108: ⟨tuple⟩(@82) = (2,)
+    # @109: ⟨tuple⟩(@108) = ((2,),)
+    # @110: ⟨VarName⟩(⟨:x⟩, @109) = x[2]
+
+    # extract the nodes that compose the indices of a varname
+    vn_node = vn_expr[] # @110[]
+    vn_name = getvalue(vn_node.call.arguments[1])
+    indices_node = try_getindex(vn_node.call.arguments[2]) # @109[]
+    index_element_nodes = getindex.(indices_node.call.arguments) # (@108[],)
+    index_nodes = Tuple(try_getindex.(index.call.arguments) for index in index_element_nodes) # ((@82[],),)
+    index_refs = map(ix -> getmapping.(Ref(graph), ix), index_nodes)  # ((getmapping(graph, @82[]),),)
+
+    # delete all nodes that were involved in the construction (ie., @108, @109, @110)
+    delete!(graph, getmapping(graph, vn_node))
+    delete!(graph, getmapping(graph, indices_node))
+    delete!.(Ref(graph), getmapping.(Ref(graph), index_element_nodes))
+
+    return VarName(vn_name, index_refs)
+end
 
 function pushtilde!(graph, callingnode, maketilde)
-    vn_r, dist_r, value_r = tilde_parameters(callingnode)
-    vn = getvalue(vn_r)
-    
-    if dist_r isa TapeReference
-        ref = getmapping(graph, dist_r[])
-        if haskey(graph, ref)
-            # move the separeate distribution call into the node and delete it from the graph
-            dist = graph[ref]
-            delete!(graph, ref)
-        else
-            # the distribution node existed, but has already been deleted, so we reconstruct it
-            # (obscure case when one distribution reference is sampled from twice)
-            dist = makecallnode(graph, dist_r[])
-        end
-    else
-        # distribution was a constant in the IR
-        dist = Constant(getvalue(dist_r))
-    end
+    vn_expr, dist_expr, value_expr = tilde_parameters(callingnode)
+    dist = convertdist(graph, dist_expr)
+    value = convertvalue(graph, value_expr)
 
-    value = convertvalue(graph, value_r)
-
-    ref = makereference!(graph, callingnode)
+    vn = convertvn!(graph, vn_expr)
+    ref = makereference!(graph, callingnode, vn)
     graph[ref] = maketilde(dist, value)
+    
     return graph
 end
 
@@ -348,11 +399,16 @@ function pushnode!(graph, node::CallingNode{typeof(DynamicPPL.matchingvalue)})
     # special handling for model arguments
     # @7: ⟨getproperty⟩(@6, ⟨:x⟩) = [0.5, 1.1]                                                                                                                                                       
     # @8: ⟨DynamicPPL.matchingvalue⟩(@4, @3, @7) = [0.5, 1.1]
-    
-    getproperty_node = node.call.arguments[3][]
-    # delete!(graph, getmapping(graph, getproperty_node))
-    
-    argname = getvalue(getproperty_node.call.arguments[2])
+
+    value_expr = node.call.arguments[3]
+    if value_expr isa TapeReference
+        getproperty_node = try_getindex(value_expr)
+        delete!(graph, getmapping(graph, getproperty_node))
+        argname = getvalue(getproperty_node.call.arguments[2])
+    else
+        argname = gensym("argument")
+    end
+
     ref = makereference!(graph, node)
     graph[ref] = Argument(string(argname), getvalue(node))
     return graph

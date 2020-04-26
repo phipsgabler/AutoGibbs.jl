@@ -7,33 +7,33 @@ deps(node::Observation) = deps(node.dist)
 deps(node::Call) = [arg for arg in node.args if arg isa Reference]
 
 
-function pushnode!(stmts, r, node::Constant)
-    value = escape_string(string(node.value))
+function pushnode!(stmts, r, stmt::Constant)
+    value = escape_string(string(stmt.value))
     push!(stmts, GraphViz.Node(string(r.name), label=value, shape="rectangle"))
 end
-function pushnode!(stmts, r, node::Call)
-    argstring = join(node.args, ", ")
-    label = escape_string("$r = $(node.f)($argstring)")
+function pushnode!(stmts, r, stmt::Call)
+    argstring = join(stmt.args, ", ")
+    label = escape_string("$r = $(stmt.f)($argstring)")
     push!(stmts, GraphViz.Node(string(r.name), label=label, shape="rectangle"))
 end
-function pushnode!(stmts, r, node::Union{Assumption, Observation})
-    dist_args = join(node.dist.args, ", ")
-    label = escape_string("$r = $(node.vn) ~ $(node.dist.f)($dist_args)")
+function pushnode!(stmts, r, stmt::Union{Assumption, Observation})
+    dist_args = join(stmt.dist.args, ", ")
+    label = escape_string("$r = $(stmt.vn) ~ $(stmt.dist.f)($dist_args)")
     push!(stmts, GraphViz.Node(string(r.name), label=label, shape="circle"))
 end
-function pushnode!(stmts, r, node::Argument)
-    label = escape_string("$r = $(node.name) = $(node.value)")
+function pushnode!(stmts, r, stmt::Argument)
+    label = escape_string("$r = $(stmt.name) = $(stmt.value)")
     push!(stmts, GraphViz.Node(string(r.name), label=label, shape="rectangle"))
 end
 
 
-function convert(::Type{GraphViz.Graph}, graph::Dict{Reference, DepNode})
+function convert(::Type{GraphViz.Graph}, graph::Graph)
     stmts = Vector{GraphViz.Statement}()
 
-    for (r, node) in graph
-        pushnode!(stmts, r, node)
+    for (r, stmt) in graph
+        pushnode!(stmts, r, stmt)
         
-        for dep in deps(node)
+        for dep in deps(stmt)
             from = GraphViz.NodeID(string(r.name))
             to = GraphViz.NodeID(string(dep.name))
             push!(stmts, GraphViz.Edge([from, to]))
@@ -53,7 +53,7 @@ function convert(::Type{GraphViz.Graph}, graph::Dict{Reference, DepNode})
 end
 
 
-function savedot(fn::AbstractString, graph::Dict{Reference, DepNode})
+function savedot(fn::AbstractString, graph::Graph)
     open(fn, "w") do fp
         GraphViz.pprint(fp, convert(GraphViz.Graph, graph))
     end
