@@ -5,9 +5,10 @@ using Distributions
 using DynamicPPL
 
 
-varnames(graph) = Set(tilde.vn
-                      for tilde in values(graph)
-                      if tilde isa Union{AutoGibbs.Assumption, AutoGibbs.Observation})
+function varnames(graph)
+    vars = (ref for ref in keys(graph) if ref isa AutoGibbs.Reference{<:VarName})
+    return Set(AutoGibbs.resolve_varname(graph, ref) for ref in vars)
+end
 
 @testset "AutoGibbs.jl" begin
     @model function test0(x)
@@ -102,4 +103,15 @@ varnames(graph) = Set(tilde.vn
         end
     end
 
+    graph7 = trackdependencies(test7([0.0, 0.1, -0.2]))
+    @test varnames(graph7) == Set([@varname(s), @varname(x[1]), @varname(x[2]), @varname(x[3])])
+    
+    
+    @model function test8()
+        s ~ Gamma(1.0, 1.0)
+        0.1 ~ Normal(0.0, s)
+    end
+
+    graph8 = trackdependencies(test8())
+    @test varnames(graph8) == Set([@varname(s)])
 end
