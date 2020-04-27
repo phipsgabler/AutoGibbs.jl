@@ -206,9 +206,9 @@ struct Observation{T, TDist<:Statement} <: Statement
 end
 
 struct Call{T, TF, TArgs<:Tuple} <: Statement
-    value::T
     f::TF
     args::TArgs
+    value::T
 end
 
 struct Constant{T} <: Statement
@@ -244,7 +244,7 @@ Reference(number) = Reference(number, nothing)
 
 
 Base.show(io::IO, r::Reference{Nothing}) = print(io, "%", r.number)
-Base.show(io::IO, r::Reference{<:VarName}) = print(io, r.vn)
+Base.show(io::IO, r::Reference{<:VarName}) = print(io, "%", r.number, ":", r.vn)
 Base.isless(q::Reference, r::Reference) = isless(q.number, r.number)
 Base.hash(r::Reference, h::UInt) = hash(r.number, h)
 Base.:(==)(q::Reference, r::Reference) = q.number == r.number
@@ -253,15 +253,19 @@ Base.:(==)(q::Reference, r::Reference) = q.number == r.number
 struct Graph
     statements::Dict{Reference, Statement}
     reference_mapping::Dict{AbstractNode, Reference}
+    mutated_rvs::Dict{Reference, VarName}
 end
 
-Graph() = Graph(Dict{Reference, Statement}(), Dict{AbstractNode, Reference}())
+Graph() = Graph(Dict{Reference, Statement}(),
+                Dict{AbstractNode, Reference}(),
+                Dict{Reference, VarName}())
 
 Base.IteratorSize(::Type{Graph}) = Base.HasLength()
 Base.length(graph::Graph) = length(graph.statements)
 Base.IteratorEltype(::Type{Graph}) = Base.HasEltype()
 Base.eltype(graph::Graph) = eltype(graph.statements)
-Base.getindex(graph::Graph, ref) = graph.statements[ref]
+Base.getindex(graph::Graph, ref::Reference) = graph.statements[ref]
+Base.getindex(graph::Graph, ref::Int) = graph[Reference(ref)]
 Base.setindex!(graph::Graph, stmt, ref) = graph.statements[ref] = stmt
 Base.haskey(graph::Graph, ref) = haskey(graph.statements, ref)
 Base.delete!(graph::Graph, ref) = delete!(graph.statements, ref)
@@ -286,6 +290,10 @@ end
 getmapping(graph::Graph, constant) = constant
 getmapping(graph::Graph, node::AbstractNode) = get(graph.reference_mapping, node, node)
 setmapping!(graph::Graph, (node, ref)::Pair) = graph.reference_mapping[node] = ref
+
+getmutation(graph::Graph, ref::Reference) = get(graph.mutated_rvs, ref, ref.vn)
+setmutation!(graph, (ref, vn)::Pair) = graph.mutated_rvs[ref] = vn
+
 
 function makereference!(graph, node, vn=nothing)
     newref = Reference(length(graph.reference_mapping) + 1, vn)
@@ -321,7 +329,7 @@ end
 function makecallnode(graph, node::CallingNode)
     f = convertvalue(graph, node.call.f)
     args = convertvalue.(Ref(graph), (node.call.arguments..., something(node.call.varargs, ())...))
-    return Call(getvalue(node), f, args)
+    return Call(f, args, getvalue(node))
 end
 
 convertvalue(graph, expr::TapeReference) = get(graph.reference_mapping, expr[], getvalue(expr))
@@ -414,6 +422,20 @@ function pushnode!(graph, node::CallingNode{typeof(DynamicPPL.matchingvalue)})
     return graph
 end
 
+function pushnode!(graph, node::CallingNode{typeof(setindex!)})
+    # @32: [§5:%34] ⟨DynamicPPL.tilde_assume⟩(@5, @4, @20, @29, @31, @3) = -0.031672055938280076
+    # @33: [§5:%35] ⟨setindex!⟩(@19, @32, ⟨1⟩) = [...]
+    ref = makereference!(graph, node)
+    graph[ref] = makecallnode(graph, node)
+
+    mutated, value = graph[ref].args[1], graph[ref].args[2]
+    if graph[value] isa Union{Assumption, Observation}
+        setmutation!(graph, mutated => VarName(DynamicPPL.getsym(value.vn)))
+    end
+    
+    return graph
+end
+
 function pushnode!(graph, node::ConstantNode)
     ref = makereference!(graph, node)
     graph[ref] = Constant(getvalue(node))
@@ -435,8 +457,35 @@ function pushnode!(graph, node::ArgumentNode)
 end
 
 
+function replace_mutated!(graph)
+    mutated_rvs = graph.mutated_rvs
+
+    for (ref, vn) in mutated_rvs
+        original_stmt = graph[ref]
+        delete!(graph, ref)
+        new_ref = Reference(ref.number, vn)
+        graph[new_ref] = original_stmt
+    end
+    
+    for (ref, stmt) in graph
+        graph[ref] = replace_mutated(graph, graph[ref])
+    end
+
+    return graph
+end
+
+replace_mutated(graph, ref::Reference) = Reference(ref.number, getmutation(graph, ref))
+replace_mutated(graph, stmt::Assumption) = Assumption(replace_mutated(graph, stmt.dist), stmt.value)
+replace_mutated(graph, stmt::Observation) = Observation(replace_mutated(graph, stmt.dist), stmt.value)
+replace_mutated(graph, stmt::Call) = Call(replace_mutated(graph, stmt.f),
+                                          replace_mutated.(Ref(graph), stmt.args),
+                                          stmt.value)
+replace_mutated(graph, stmt::Constant) = stmt
+replace_mutated(graph, stmt::Argument) = stmt
+replace_mutated(graph, constant) = constant
+
 function makegraph(slice::Vector{<:AbstractNode})
-    return foldl(pushnode!, slice, init=Graph())
+    return replace_mutated!(foldl(pushnode!, slice, init=Graph()))
 end
 
 

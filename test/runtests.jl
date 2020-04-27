@@ -64,7 +64,7 @@ end
     end
     
     graph4 = trackdependencies(test4([1, 1, -1]))
-    @test varnames(graph4) == Set([@varname(μ),
+    @test varnames(graph4) == Set([@varname(μ), @varname(z),
                                    @varname(z[1]), @varname(z[2]), @varname(z[3]),
                                    @varname(x[1]), @varname(x[2]), @varname(x[3])])
     
@@ -114,4 +114,21 @@ end
 
     graph8 = trackdependencies(test8())
     @test varnames(graph8) == Set([@varname(s)])
+
+    
+    @model function test9(x)
+        s ~ Gamma(1.0, 1.0)
+        state = zeros(length(x) + 1)
+        state[1] ~ Normal(0.0, s)
+        for i in 1:length(x)
+            state[i+1] ~ Normal(state[i], s)
+            x[i] ~ Normal(state[i+1], s)
+        end
+    end
+
+    graph9 = trackdependencies(test9([0.0, 0.1, -0.2]))
+    @test varnames(graph9) == Set([@varname(s), @varname(state),
+                                   @varname(x[1]), @varname(x[2]), @varname(x[3]),
+                                   @varname(state[1]), @varname(state[2]), @varname(state[3]),
+                                   @varname(state[4])])
 end
