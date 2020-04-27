@@ -7,36 +7,47 @@ deps(node::Observation) = deps(node.dist)
 deps(node::Call) = [arg for arg in node.args if arg isa Reference]
 
 
-function pushnode!(stmts, r, stmt::Constant)
-    value = escape_string(string(stmt.value))
-    push!(stmts, GraphViz.Node(string(r.name), label=value, shape="rectangle"))
+function pushstmt!(stmts, ref, stmt::Constant)
+    value = escape_string(sprint(showstmt, ref, stmt))
+    push!(stmts, GraphViz.Node(string(ref.number), label=value, shape="rectangle"))
 end
-function pushnode!(stmts, r, stmt::Call)
+function pushstmt!(stmts, ref, stmt::Call)
     argstring = join(stmt.args, ", ")
-    label = escape_string("$r = $(stmt.f)($argstring)")
-    push!(stmts, GraphViz.Node(string(r.name), label=label, shape="rectangle"))
+    label = escape_string(sprint(showstmt, ref, stmt))
+    push!(stmts, GraphViz.Node(string(ref.number), label=label, shape="rectangle"))
 end
-function pushnode!(stmts, r, stmt::Union{Assumption, Observation})
-    dist_args = join(stmt.dist.args, ", ")
-    label = escape_string("$r = $(stmt.vn) ~ $(stmt.dist.f)($dist_args)")
-    push!(stmts, GraphViz.Node(string(r.name), label=label, shape="circle"))
+function pushstmt!(stmts, ref, stmt::Union{Assumption, Observation})
+    label = escape_string(sprint(showstmt, ref, stmt))
+    push!(stmts, GraphViz.Node(string(ref.number), label=label, shape="circle"))
 end
-function pushnode!(stmts, r, stmt::Argument)
-    label = escape_string("$r = $(stmt.name) = $(stmt.value)")
-    push!(stmts, GraphViz.Node(string(r.name), label=label, shape="rectangle"))
+function pushstmt!(stmts, ref, stmt::Argument)
+    label = escape_string(sprint(showstmt, ref, stmt))
+    push!(stmts, GraphViz.Node(string(ref.number), label=label, shape="rectangle"))
 end
 
 
-function convert(::Type{GraphViz.Graph}, graph::Graph)
+function Base.convert(::Type{GraphViz.Graph}, graph::Graph)
     stmts = Vector{GraphViz.Statement}()
 
-    for (r, stmt) in graph
-        pushnode!(stmts, r, stmt)
+    for (ref, stmt) in graph
+        pushstmt!(stmts, ref, stmt)
         
         for dep in deps(stmt)
-            from = GraphViz.NodeID(string(r.name))
-            to = GraphViz.NodeID(string(dep.name))
+            from = GraphViz.NodeID(string(ref.number))
+            to = GraphViz.NodeID(string(dep.number))
             push!(stmts, GraphViz.Edge([from, to]))
+        end
+
+        if ref isa Reference{<:VarName}
+            from = GraphViz.NodeID(string(ref.number))
+            @show ref
+            for index in DynamicPPL.getindexing(ref.vn), ix in index
+                if ix isa Reference
+                    to = GraphViz.NodeID(string(ix.number))
+                    @show ix
+                    push!(stmts, GraphViz.Edge([from, to]))
+                end
+            end
         end
     end
     
@@ -55,7 +66,7 @@ end
 
 function savedot(fn::AbstractString, graph::Graph)
     open(fn, "w") do fp
-        GraphViz.pprint(fp, convert(GraphViz.Graph, graph))
+        GraphViz.pprint(fp, Base.convert(GraphViz.Graph, graph))
     end
 end
 

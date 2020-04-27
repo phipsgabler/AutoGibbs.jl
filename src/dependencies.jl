@@ -303,13 +303,17 @@ end
 
 function Base.show(io::IO, graph::Graph)
     for (ref, stmt) in graph
-        if stmt isa Assumption
-            println(io, ref, " ~ ", stmt)
-        elseif stmt isa Observation
-            println(io, ref, " ⩪ ", stmt)
-        else
-            println(io, ref, " = ", stmt)
-        end
+        showstmt(io, ref, stmt)
+    end
+end
+
+function showstmt(io::IO, ref, stmt)
+    if stmt isa Assumption
+        println(io, ref, " ~ ", stmt)
+    elseif stmt isa Observation
+        println(io, ref, " ⩪ ", stmt)
+    else
+        println(io, ref, " = ", stmt)
     end
 end
 
