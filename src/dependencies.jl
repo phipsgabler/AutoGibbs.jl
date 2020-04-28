@@ -238,9 +238,11 @@ end
 
 Reference(number) = Reference(number, nothing)
 
+const UnnamedReference = Reference{Nothing}
+const NamedReference = Reference{<:VarName}
 
-Base.show(io::IO, r::Reference{Nothing}) = print(io, "%", r.number)
-Base.show(io::IO, r::Reference{<:VarName}) = print(io, "%", r.number, ":", r.vn)
+Base.show(io::IO, r::UnnamedReference) = print(io, "%", r.number)
+Base.show(io::IO, r::NamedReference) = print(io, "%", r.number, ":", r.vn)
 Base.isless(q::Reference, r::Reference) = isless(q.number, r.number)
 Base.hash(r::Reference, h::UInt) = hash(r.number, h)
 Base.:(==)(q::Reference, r::Reference) = q.number == r.number
@@ -318,7 +320,7 @@ end
 try_getvalue(graph, ref::Reference) = getvalue(graph[ref])
 try_getvalue(graph, constant) = constant
 
-function resolve_varname(graph, ref::Reference{<:VarName})
+function resolve_varname(graph, ref::NamedReference)
     var = ref.vn
     sym = DynamicPPL.getsym(var)
     indexing = DynamicPPL.getindexing(var)

@@ -6,7 +6,7 @@ using DynamicPPL
 
 
 function varnames(graph)
-    vars = (ref for ref in keys(graph) if ref isa AutoGibbs.Reference{<:VarName})
+    vars = (ref for ref in keys(graph) if ref isa AutoGibbs.NamedReference)
     return Set(AutoGibbs.resolve_varname(graph, ref) for ref in vars)
 end
 
