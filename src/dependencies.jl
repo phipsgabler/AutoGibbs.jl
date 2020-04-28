@@ -215,10 +215,6 @@ struct Constant{T} <: Statement
     value::T
 end
 
-struct Argument{T} <: Statement
-    name::String
-    value::T
-end
 
 
 shortname(d::Type{<:Distribution}) = string(nameof(d))
@@ -230,7 +226,6 @@ Base.show(io::IO, stmt::Observation) =
     print(io, shortname(stmt.dist.f), "(", join(stmt.dist.args, ", "), ") → ", stmt.value)
 Base.show(io::IO, stmt::Call) = print(io, stmt.f, "(", join(stmt.args, ", "), ") → ", stmt.value)
 Base.show(io::IO, stmt::Constant) = print(io, stmt.value)
-Base.show(io::IO, stmt::Argument) = print(io, stmt.name, " → ", stmt.value)
 
 AutoGibbs.getvalue(stmt::Statement) = stmt.value
 
@@ -421,8 +416,8 @@ function pushnode!(graph, node::CallingNode{typeof(DynamicPPL.matchingvalue)})
         argname = gensym("argument")
     end
 
-    ref = makereference!(graph, node)
-    graph[ref] = Argument(string(argname), getvalue(node))
+    ref = makereference!(graph, node, VarName(argname))
+    graph[ref] = Constant(getvalue(node))
     return graph
 end
 
@@ -485,7 +480,6 @@ replace_mutated(graph, stmt::Call) = Call(replace_mutated(graph, stmt.f),
                                           replace_mutated.(Ref(graph), stmt.args),
                                           stmt.value)
 replace_mutated(graph, stmt::Constant) = stmt
-replace_mutated(graph, stmt::Argument) = stmt
 replace_mutated(graph, constant) = constant
 
 function makegraph(slice::Vector{<:AbstractNode})
