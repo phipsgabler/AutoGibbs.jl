@@ -30,13 +30,13 @@ nodes that are not tilde calls.
 tilde_parameters(node::AbstractNode) = nothing
 
 function tilde_parameters(node::CallingNode{typeof(DynamicPPL.tilde_assume)})
-    args = node.call.arguments # ctx, sampler, right, vn, inds, vi
+    args = getarguments(node) # ctx, sampler, right, vn, inds, vi
     vn, dist, value = args[4], args[3], getvalue(node)
     return vn, dist, TapeConstant(value)
 end
 
 function tilde_parameters(node::CallingNode{typeof(DynamicPPL.tilde_observe)})
-    args = node.call.arguments
+    args = getarguments(node)
     if length(args) == 7
         # ctx, sampler, right, left, vname, vinds, vi
         vn, dist, value = args[5], args[3], args[4]
@@ -49,13 +49,13 @@ function tilde_parameters(node::CallingNode{typeof(DynamicPPL.tilde_observe)})
 end
 
 function tilde_parameters(node::CallingNode{typeof(DynamicPPL.dot_tilde_assume)})
-    args = node.call.arguments # ctx, sampler, right, left, vn, inds, vi
+    args = getarguments(node) # ctx, sampler, right, left, vn, inds, vi
     vn, dist, value = args[5], args[3], args[4]
     return vn, dist, value
 end
 
 function tilde_parameters(node::CallingNode{typeof(DynamicPPL.dot_tilde_observe)})
-    args = node.call.arguments
+    args = getarguments(node)
     if length(args) == 7
         # ctx, sampler, right, left, vn, inds, vi
         vn, dist, value = args[5], args[3], args[4]
@@ -93,9 +93,10 @@ function model_argument_nodes(root)
     
     for child in getchildren(root)
         if child isa CallingNode{typeof(getproperty)}
-            if getvalue(child.call.arguments[2]) == :args && try_getindex(child.call.arguments[1]) == model_node
+            value, property_name = getarguments(child)
+            if getvalue(property_name) == :args && try_getindex(value) == model_node
                 push!(modelargs_nodes, child)
-            elseif try_getindex(child.call.arguments[1]) ∈ modelargs_nodes
+            elseif try_getindex(value) ∈ modelargs_nodes
                 # a `getproperty(args, symbol)` whose parent is a `args = getproperty(model, :args)`
                 # is a model argument, for sure
                 push!(argument_nodes, child)
@@ -167,7 +168,7 @@ function strip_dependencies(root)
                     # if the candidate is mutating an array, also make the mutated object a candidate
                     # and record the backedge from the mutated one to:
                     # `n = setindex!(x, v, i)` makes `x` a candidate, and a backedge from `x` to `n`.
-                    mutated = child.call.arguments[1]
+                    mutated = getargument(child, 1)
                     if mutated isa TapeReference
                         push!(candidates, mutated[])
                         push!(get!(Vector{AbstractNode}, mutants, mutated[]), child)
@@ -326,8 +327,8 @@ end
 
 
 function makecallnode(graph, node::CallingNode)
-    f = convertvalue(graph, node.call.f)
-    args = convertvalue.(Ref(graph), (node.call.arguments..., something(node.call.varargs, ())...))
+    f = convertvalue(graph, getfunction(node))
+    args = convertvalue.(Ref(graph), getarguments(node))
     return Call(f, args, getvalue(node))
 end
 
@@ -359,10 +360,10 @@ function convertvn!(graph, vn_expr::TapeReference)
 
     # extract the nodes that compose the indices of a varname
     vn_node = vn_expr[] # @110[]
-    vn_name = getvalue(vn_node.call.arguments[1])
-    indices_node = try_getindex(vn_node.call.arguments[2]) # @109[]
-    index_element_nodes = getindex.(indices_node.call.arguments) # (@108[],)
-    index_nodes = Tuple(try_getindex.(index.call.arguments) for index in index_element_nodes) # ((@82[],),)
+    vn_name = getvalue(getargument(vn_node, 1))
+    indices_node = try_getindex(getargument(vn_node, 2)) # @109[]
+    index_element_nodes = getindex.(getarguments(indices_node)) # (@108[],)
+    index_nodes = Tuple(try_getindex.(getarguments(index)) for index in index_element_nodes) # ((@82[],),)
     index_refs = map(ix -> getmapping.(Ref(graph), ix), index_nodes)  # ((getmapping(graph, @82[]),),)
 
     # delete all nodes that were involved in the construction (ie., @108, @109, @110)
@@ -407,12 +408,13 @@ function pushnode!(graph, node::CallingNode{typeof(DynamicPPL.matchingvalue)})
     # @7: ⟨getproperty⟩(@6, ⟨:x⟩) = [0.5, 1.1]                                                                                                                                                       
     # @8: ⟨DynamicPPL.matchingvalue⟩(@4, @3, @7) = [0.5, 1.1]
 
-    value_expr = node.call.arguments[3]
+    value_expr = getargument(node, 3)
     if value_expr isa TapeReference
         getproperty_node = try_getindex(value_expr)
         delete!(graph, getmapping(graph, getproperty_node))
-        argname = getvalue(getproperty_node.call.arguments[2])
+        argname = getvalue(getargument(getproperty_node, 2))
     else
+        # this will probably never happen...?
         argname = gensym("argument")
     end
 
