@@ -1,7 +1,6 @@
 using IRTracker.GraphViz
 
 deps(::Constant) = Reference[]
-deps(::Argument) = Reference[]
 deps(node::Assumption) = deps(node.dist)
 deps(node::Observation) = deps(node.dist)
 deps(node::Call) = [arg for arg in node.args if arg isa Reference]
@@ -19,10 +18,6 @@ end
 function pushstmt!(stmts, ref, stmt::Union{Assumption, Observation})
     label = escape_string(sprint(showstmt, ref, stmt))
     push!(stmts, GraphViz.Node(string(ref.number), label=label, shape="circle"))
-end
-function pushstmt!(stmts, ref, stmt::Argument)
-    label = escape_string(sprint(showstmt, ref, stmt))
-    push!(stmts, GraphViz.Node(string(ref.number), label=label, shape="rectangle"))
 end
 
 
