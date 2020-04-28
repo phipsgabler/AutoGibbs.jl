@@ -1,10 +1,5 @@
 using IRTracker.GraphViz
 
-deps(::Constant) = Reference[]
-deps(node::Assumption) = deps(node.dist)
-deps(node::Observation) = deps(node.dist)
-deps(node::Call) = [arg for arg in node.args if arg isa Reference]
-
 
 function pushstmt!(stmts, ref, stmt::Constant)
     value = escape_string(sprint(showstmt, ref, stmt))
@@ -27,13 +22,13 @@ function Base.convert(::Type{GraphViz.Graph}, graph::Graph)
     for (ref, stmt) in graph
         pushstmt!(stmts, ref, stmt)
         
-        for dep in deps(stmt)
+        for dep in dependencies(stmt)
             from = GraphViz.NodeID(string(ref.number))
             to = GraphViz.NodeID(string(dep.number))
             push!(stmts, GraphViz.Edge([from, to]))
         end
 
-        if ref isa Reference{<:VarName}
+        if ref isa NamedReference
             from = GraphViz.NodeID(string(ref.number))
             @show ref
             for index in DynamicPPL.getindexing(ref.vn), ix in index
