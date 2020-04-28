@@ -1,3 +1,4 @@
+using IRTracker
 using DynamicPPL
 using Distributions
 
