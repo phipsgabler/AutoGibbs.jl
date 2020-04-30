@@ -198,24 +198,28 @@ end
 
 abstract type Statement end
 
-struct Assumption{T, TDist<:Statement} <: Statement
+struct Assumption{dotted, TDist<:Statement, TV} <: Statement
     dist::TDist
-    value::T
+    value::TV
 end
 
-struct Observation{T, TDist<:Statement} <: Statement
+Assumption{dotted}(dist, value) where {dotted} = Assumption{dotted, typeof(dist), typeof(value)}(dist, value)
+
+struct Observation{dotted, TDist<:Statement, TV} <: Statement
     dist::TDist
-    value::T
+    value::TV
 end
 
-struct Call{T, TF, TArgs<:Tuple} <: Statement
+Observation{dotted}(dist, value) where {dotted} = Observation{dotted, typeof(dist), typeof(value)}(dist, value)
+
+struct Call{TV, TF, TArgs<:Tuple} <: Statement
     f::TF
     args::TArgs
-    value::T
+    value::TV
 end
 
-struct Constant{T} <: Statement
-    value::T
+struct Constant{TV} <: Statement
+    value::TV
 end
 
 
@@ -232,6 +236,9 @@ Base.show(io::IO, stmt::Constant) = print(io, stmt.value)
 
 IRTracker.getvalue(stmt::Statement) = stmt.value
 
+isdotted(::Assumption{dotted}) where {dotted} = dotted
+isdotted(::Observation{dotted}) where {dotted} = dotted
+
 
 struct Reference{TV<:Union{VarName, Nothing}}
     number::Int
@@ -243,8 +250,8 @@ Reference(number) = Reference(number, nothing)
 const UnnamedReference = Reference{Nothing}
 const NamedReference = Reference{<:VarName}
 
-Base.show(io::IO, r::UnnamedReference) = print(io, "%", r.number)
-Base.show(io::IO, r::NamedReference) = print(io, "%", r.number, ":", r.vn)
+Base.show(io::IO, r::UnnamedReference) = print(io, "⟨", r.number, "⟩")
+Base.show(io::IO, r::NamedReference) = print(io, "⟨", r.number, ":", r.vn, "⟩")
 Base.isless(q::Reference, r::Reference) = isless(q.number, r.number)
 Base.hash(r::Reference, h::UInt) = hash(r.number, h)
 Base.:(==)(q::Reference, r::Reference) = (q.number == r.number) #&& (q.vn == r.vn)
@@ -328,9 +335,9 @@ end
 
 function showstmt(io::IO, ref, stmt)
     if stmt isa Assumption
-        println(io, ref, " ~ ", stmt)
+        println(io, ref, (isdotted(stmt) ? " .~ " : " ~ "), stmt)
     elseif stmt isa Observation
-        println(io, ref, " ⩪ ", stmt)
+        println(io, ref, (isdotted(stmt) ? " .⩪ " : " ⩪ "), stmt)
     else
         println(io, ref, " = ", stmt)
     end
@@ -416,15 +423,14 @@ function pushnode!(graph, node::CallingNode)
     return graph
 end
 
-function pushnode!(graph, node::CallingNode{<:Union{typeof(DynamicPPL.tilde_assume),
-                                                    typeof(DynamicPPL.dot_tilde_assume)}})
-    return pushtilde!(graph, node, Assumption)
-end
-
-function pushnode!(graph, node::CallingNode{<:Union{typeof(DynamicPPL.tilde_observe),
-                                                    typeof(DynamicPPL.dot_tilde_observe)}})
-    return pushtilde!(graph, node, Observation)
-end
+pushnode!(graph, node::CallingNode{typeof(DynamicPPL.tilde_assume)}) =
+    pushtilde!(graph, node, Assumption{false})
+pushnode!(graph, node::CallingNode{typeof(DynamicPPL.dot_tilde_assume)}) =
+    pushtilde!(graph, node, Assumption{true})
+pushnode!(graph, node::CallingNode{typeof(DynamicPPL.tilde_observe)}) =
+    pushtilde!(graph, node, Observation{false})
+pushnode!(graph, node::CallingNode{typeof(DynamicPPL.dot_tilde_observe)}) =
+    pushtilde!(graph, node, Observation{true})
 
 function pushnode!(graph, node::CallingNode{typeof(DynamicPPL.matchingvalue)})
     # special handling for model arguments
@@ -464,7 +470,6 @@ function pushnode!(graph, node::CallingNode{typeof(getindex)})
     arguments = getmapping.(Ref(graph), argument_exprs, argument_exprs)
     array, index = arguments[1], arguments[2:end]
     if array isa NamedReference
-        # @show index
         ref = Reference(array.number, VarName(DynamicPPL.getsym(array.vn), (index,)))
         setmapping!(graph, node => ref)
         return graph
