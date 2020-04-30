@@ -265,7 +265,13 @@ Base.:(==)(q::Reference, r::Reference) = (q.number == r.number) #&& (q.vn == r.v
 dependencies(::Constant) = Reference[]
 dependencies(stmt::Assumption) = dependencies(stmt.dist)
 dependencies(stmt::Observation) = dependencies(stmt.dist)
-dependencies(stmt::Call) = Reference[arg for arg in stmt.args if arg isa Reference]
+function dependencies(stmt::Call)
+    direct_dependencies = Reference[arg for arg in stmt.args if arg isa Reference]
+    return mapreduce(dependencies,
+                     append!,
+                     direct_dependencies,
+                     init=direct_dependencies)
+end
 dependencies(ref::NamedReference) =
     Reference[ix for index in DynamicPPL.getindexing(ref.vn) for ix in index if ix isa Reference]
 dependencies(ref::UnnamedReference) = Reference[]
@@ -351,7 +357,7 @@ end
 
 
 try_getvalue(graph, ref::Reference) = getvalue(graph[ref])
-# try_getvalue(graph, constant) = constant
+try_getvalue(graph, constant) = constant
 
 function resolve_varname(graph, ref::NamedReference)
     var = ref.vn
@@ -465,7 +471,10 @@ function pushnode!(graph, node::CallingNode{typeof(setindex!)})
     mutated, value, indexing = arguments[1], arguments[2], arguments[3:end]
     if graph[value] isa Union{Assumption, Observation}
         setmutation!(graph, mutated => VarName(DynamicPPL.getsym(value.vn), (indexing,)))
+    else
+        invoke(pushnode!, Tuple{Graph, CallingNode}, graph, node)
     end
+
     
     return graph
 end
@@ -504,8 +513,34 @@ function pushnode!(graph, node::ArgumentNode)
 end
 
 
+function eliminate_leftovers!(graph::Graph)
+    marked = Set{Reference}()
+    candidates = Set{Reference}()
+    
+    for (ref, stmt) in graph
+        if ref isa NamedReference
+            # mark backwards from `ref`
+            push!(empty!(candidates), ref)
+            
+            while !isempty(candidates)
+                ref = pop!(candidates)
+                ref ∈ marked && continue
+                
+                push!(marked, ref)
+                union!(candidates, dependencies(graph[ref]))
+                union!(candidates, dependencies(ref))
+            end
+        end
+    end
+
+    for unmarked in setdiff(keys(graph), marked)
+        delete!(graph, unmarked)
+    end
+end
+
 function makegraph(slice::Vector{<:AbstractNode})
     graph = foldl(pushnode!, slice, init=Graph())
+    eliminate_leftovers!(graph)
     return graph
 end
 
