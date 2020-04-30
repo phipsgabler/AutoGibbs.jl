@@ -3,6 +3,7 @@ using Test
 
 using Distributions
 using DynamicPPL
+# using Turing, Turing.RandomMeasures
 
 
 function varnames(graph)
@@ -64,7 +65,7 @@ end
     end
     
     graph4 = trackdependencies(test4([1, 1, -1]))
-    @test varnames(graph4) == Set([@varname(μ), @varname(z), @varname(x),
+    @test varnames(graph4) == Set([@varname(μ), @varname(x),
                                    @varname(z[1]), @varname(z[2]), @varname(z[3]),
                                    @varname(x[1]), @varname(x[2]), @varname(x[3])])
     
@@ -79,7 +80,7 @@ end
     end
     
     graph5 = trackdependencies(test5([1, 1, -1]))
-    @test varnames(graph5) == Set([@varname(μ), @varname(z), @varname(x)
+    @test varnames(graph5) == Set([@varname(μ), @varname(z), @varname(x),
                                    @varname(x[1]), @varname(x[2]), @varname(x[3])])
 
 
@@ -104,7 +105,7 @@ end
     end
 
     graph7 = trackdependencies(test7([0.0, 0.1, -0.2]))
-    @test varnames(graph7) == Set([@varname(s), @varname(x[1]), @varname(x[2]), @varname(x[3])])
+    @test varnames(graph7) == Set([@varname(s), @varname(x), @varname(x[1]), @varname(x[2]), @varname(x[3])])
     
     
     @model function test8()
@@ -127,8 +128,19 @@ end
     end
 
     graph9 = trackdependencies(test9([0.0, 0.1, -0.2]))
-    @test varnames(graph9) == Set([@varname(s), @varname(state),
+    @test varnames(graph9) == Set([@varname(x), @varname(s),
                                    @varname(x[1]), @varname(x[2]), @varname(x[3]),
                                    @varname(state[1]), @varname(state[2]), @varname(state[3]),
                                    @varname(state[4])])
+
+    # @model dpmixture(x) = begin
+    #     rpm = DirichletProcess(1.0)
+    #     n = zeros(Int, length(x))
+    #     z = zeros(Int, length(x))    for i in eachindex(x)
+    #         z[i] ~ ChineseRestaurantProcess(rpm, n)
+    #         n[z[i]] += 1
+    #     end    K = findlast(!iszero, n)
+    #     m ~ MvNormal(fill(0.0, K), 1.0)
+    #     x ~ MvNormal(m[z], 1.0)
+    # end
 end
