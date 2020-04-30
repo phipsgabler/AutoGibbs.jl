@@ -229,8 +229,13 @@ shortname(other) = string(other)
 
 Base.show(io::IO, stmt::Assumption) =
     print(io, shortname(stmt.dist.f), "(", join(stmt.dist.args, ", "), ") → ", stmt.value)
-Base.show(io::IO, stmt::Observation) =
-    print(io, shortname(stmt.dist.f), "(", join(stmt.dist.args, ", "), ")")
+function Base.show(io::IO, stmt::Observation)
+    if stmt.value isa Reference
+        print(io, shortname(stmt.dist.f), "(", join(stmt.dist.args, ", "), ")")
+    else
+        print(io, shortname(stmt.dist.f), "(", join(stmt.dist.args, ", "), ") → ", stmt.value)
+    end
+end
 Base.show(io::IO, stmt::Call) = print(io, stmt.f, "(", join(stmt.args, ", "), ") → ", stmt.value)
 Base.show(io::IO, stmt::Constant) = print(io, stmt.value)
 
