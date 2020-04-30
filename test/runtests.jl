@@ -38,7 +38,7 @@ end
     end
 
     graph2 = trackdependencies(test2([-0.5, 0.5]))
-    @test varnames(graph2) == Set([@varname(s), @varname(x[1]), @varname(x[2])])
+    @test varnames(graph2) == Set([@varname(s), @varname(x), @varname(x[1]), @varname(x[2])])
     
     
     @model function test3(w)
@@ -64,7 +64,7 @@ end
     end
     
     graph4 = trackdependencies(test4([1, 1, -1]))
-    @test varnames(graph4) == Set([@varname(μ), @varname(z),
+    @test varnames(graph4) == Set([@varname(μ), @varname(z), @varname(x),
                                    @varname(z[1]), @varname(z[2]), @varname(z[3]),
                                    @varname(x[1]), @varname(x[2]), @varname(x[3])])
     
@@ -79,7 +79,7 @@ end
     end
     
     graph5 = trackdependencies(test5([1, 1, -1]))
-    @test varnames(graph5) == Set([@varname(μ), @varname(z),
+    @test varnames(graph5) == Set([@varname(μ), @varname(z), @varname(x)
                                    @varname(x[1]), @varname(x[2]), @varname(x[3])])
 
 
