@@ -229,13 +229,8 @@ shortname(other) = string(other)
 
 Base.show(io::IO, stmt::Assumption) =
     print(io, shortname(stmt.dist.f), "(", join(stmt.dist.args, ", "), ") → ", stmt.value)
-function Base.show(io::IO, stmt::Observation)
-    if stmt.value isa Reference
-        print(io, shortname(stmt.dist.f), "(", join(stmt.dist.args, ", "), ")")
-    else
-        print(io, shortname(stmt.dist.f), "(", join(stmt.dist.args, ", "), ") → ", stmt.value)
-    end
-end
+Base.show(io::IO, stmt::Observation) =
+    print(io, shortname(stmt.dist.f), "(", join(stmt.dist.args, ", "), ") ← ", stmt.value)
 Base.show(io::IO, stmt::Call) = print(io, stmt.f, "(", join(stmt.args, ", "), ") → ", stmt.value)
 Base.show(io::IO, stmt::Constant) = print(io, stmt.value)
 
@@ -263,8 +258,11 @@ Base.:(==)(q::Reference, r::Reference) = (q.number == r.number) #&& (q.vn == r.v
 
 
 dependencies(::Constant) = Reference[]
-dependencies(stmt::Assumption) = dependencies(stmt.dist)
-dependencies(stmt::Observation) = dependencies(stmt.dist)
+function dependencies(stmt::Union{Assumption, Observation})
+    direct_dependencies = dependencies(stmt.dist)
+    stmt.value isa Reference && push!(direct_dependencies, stmt.value)
+    return direct_dependencies
+end
 function dependencies(stmt::Call)
     direct_dependencies = Reference[arg for arg in stmt.args if arg isa Reference]
     return mapreduce(dependencies,
@@ -519,7 +517,7 @@ function eliminate_leftovers!(graph::Graph)
     candidates = Set{Reference}()
     
     for (ref, stmt) in graph
-        if ref isa NamedReference
+        if stmt isa Union{Assumption, Observation}
             # mark backwards from `ref`
             push!(empty!(candidates), ref)
             
