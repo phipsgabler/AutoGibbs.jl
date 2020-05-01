@@ -415,6 +415,7 @@ function convertvn!(graph, vn_expr::TapeReference)
     return VarName(vn_name, index_refs)
 end
 
+
 function pushtilde!(graph, callingnode, maketilde)
     vn_expr, dist_expr, value_expr = tilde_parameters(callingnode)
     dist = convertdist(graph, dist_expr)
@@ -458,7 +459,7 @@ function pushnode!(graph, node::CallingNode{typeof(DynamicPPL.matchingvalue)})
         argname = gensym("argument")
     end
 
-    ref = makereference!(graph, node, VarName(argname))
+    ref = makereference!(graph, node)
     graph[ref] = Constant(getvalue(node))
     return graph
 end
