@@ -328,6 +328,22 @@ end
 
 getmutation(graph::Graph, ref::Reference) = get(graph.mutated_rvs, ref, ref.vn)
 setmutation!(graph, (ref, vn)::Pair) = graph.mutated_rvs[ref] = vn
+# function ismutated(graph, ref, ix)
+#     if ref isa NamedReference
+#         ref_sym = DynamicPPL.getsym(ref.vn)
+#         ref_indexing = map.(ix -> try_getvalue(graph, ix), DynamicPPL.getindexing(ref.vn))
+
+#         for mutated in values(graph.mutated_rvs)
+#             if DynamicPPL.getsym(mutated) == ref_sym
+#                 mut_indexing = map.(ix -> try_getvalue(graph, ix), DynamicPPL.getindexing(mutated))
+#                 @show mut_indexing, ref_indexing
+#                 DynamicPPL.subsumes(mut_indexing, ref_indexing) && return true
+#             end
+#         end
+#     end
+    
+#     return false
+# end
 
 
 function makereference!(graph, node, vn=nothing)
@@ -357,6 +373,7 @@ end
 try_getvalue(graph, ref::Reference) = getvalue(graph[ref])
 try_getvalue(graph, constant) = constant
 
+resolve_varname(graph, ref::UnnamedReference) = ref
 function resolve_varname(graph, ref::NamedReference)
     var = ref.vn
     sym = DynamicPPL.getsym(var)
