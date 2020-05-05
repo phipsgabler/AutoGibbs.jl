@@ -319,7 +319,7 @@ function getmapping(graph::Graph, node, default)
 end
 setmapping!(graph::Graph, (node, ref)::Pair) = graph.reference_mapping[node] = ref
 
-function deletemapped!(graph::Graph, node)
+function deletemapping!(graph::Graph, node)
     if haskey(graph.reference_mapping, node)
         delete!(graph, getmapping(graph, node))
     end
@@ -382,7 +382,7 @@ function resolve_varname(graph, ref::NamedReference)
 end
 
 
-function makecallnode(graph, node::CallingNode)
+function convertcall(graph, node::CallingNode)
     f = convertvalue(graph, getfunction(node))
     args = convertvalue.(Ref(graph), getarguments(node))
     return Call(f, args, getvalue(node))
@@ -391,8 +391,8 @@ end
 convertvalue(graph, expr::TapeReference) = getmapping(graph, expr[], getvalue(expr))
 convertvalue(graph, expr::TapeConstant) = getvalue(expr)
 
-convertdist(graph, dist_expr::TapeConstant) = Constant(getvalue(dist))
-function convertdist(graph, dist_expr::TapeReference)
+convertdist!(graph, dist_expr::TapeConstant) = Constant(getvalue(dist))
+function convertdist!(graph, dist_expr::TapeReference)
     ref = getmapping(graph, dist_expr[], nothing)
     if haskey(graph, ref)
         # move the separeate distribution call into the node and delete it from the graph
@@ -402,7 +402,7 @@ function convertdist(graph, dist_expr::TapeReference)
     else
         # the distribution node existed, but has already been deleted, so we reconstruct it
         # (obscure case when one distribution reference is sampled from twice)
-        return makecallnode(graph, dist_expr[])
+        return convertcall(graph, dist_expr[])
     end
 end
 
@@ -423,9 +423,9 @@ function convertvn!(graph, vn_expr::TapeReference)
     index_refs = map(ix -> getmapping.(Ref(graph), ix, ix), index_nodes)  # ((getmapping(graph, @82[]),),)
 
     # delete statements of all nodes that were involved in the construction (ie., @108, @109, @110)
-    deletemapped!(graph, vn_node)
-    deletemapped!(graph, indices_node)
-    deletemapped!.(Ref(graph), index_element_nodes)
+    deletemapping!(graph, vn_node)
+    deletemapping!(graph, indices_node)
+    deletemapping!.(Ref(graph), index_element_nodes)
 
     return VarName(vn_name, index_refs)
 end
@@ -433,22 +433,16 @@ end
 
 function pushtilde!(graph, callingnode, maketilde)
     vn_expr, dist_expr, value_expr = tilde_parameters(callingnode)
-    dist = convertdist(graph, dist_expr)
+    dist = convertdist!(graph, dist_expr)
     value = convertvalue(graph, value_expr)
 
     vn = convertvn!(graph, vn_expr)
     ref = makereference!(graph, callingnode, vn)
     graph[ref] = maketilde(dist, value)
-    
+    # setmutation!(graph, ref => vn)
     return graph
 end
 
-
-function pushnode!(graph, node::CallingNode)
-    ref = makereference!(graph, node)
-    graph[ref] = makecallnode(graph, node)
-    return graph
-end
 
 pushnode!(graph, node::CallingNode{typeof(DynamicPPL.tilde_assume)}) =
     pushtilde!(graph, node, Assumption{false})
@@ -458,6 +452,12 @@ pushnode!(graph, node::CallingNode{typeof(DynamicPPL.tilde_observe)}) =
     pushtilde!(graph, node, Observation{false})
 pushnode!(graph, node::CallingNode{typeof(DynamicPPL.dot_tilde_observe)}) =
     pushtilde!(graph, node, Observation{true})
+
+function pushnode!(graph, node::CallingNode)
+    ref = makereference!(graph, node)
+    graph[ref] = convertcall(graph, node)
+    return graph
+end
 
 function pushnode!(graph, node::CallingNode{typeof(DynamicPPL.matchingvalue)})
     # special handling for model arguments
