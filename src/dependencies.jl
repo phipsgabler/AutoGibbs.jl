@@ -212,7 +212,7 @@ end
 
 Observation{dotted}(dist, value) where {dotted} = Observation{dotted, typeof(dist), typeof(value)}(dist, value)
 
-struct Call{TV, TF, TArgs<:Tuple} <: Statement
+struct Call{TF, TArgs<:Tuple, TV} <: Statement
     f::TF
     args::TArgs
     value::TV
