@@ -532,23 +532,47 @@ end
 function eliminate_leftovers!(graph::Graph)
     marked = Set{Reference}()
     candidates = Set{Reference}()
-    
+
+    # first pass: mark everything between tildes
     for (ref, stmt) in graph
+        empty!(candidates)
+        
         if stmt isa Union{Assumption, Observation}
             # mark backwards from `ref`
-            push!(empty!(candidates), ref)
+            push!(candidates, ref)
             
             while !isempty(candidates)
-                ref = pop!(candidates)
-                ref ∈ marked && continue
+                candidate = pop!(candidates)
+                candidate ∈ marked && continue
                 
-                push!(marked, ref)
-                union!(candidates, dependencies(graph[ref]))
-                union!(candidates, dependencies(ref))
+                push!(marked, candidate)
+                union!(candidates, dependencies(graph[candidate]))
+                union!(candidates, dependencies(candidate))
+            end
+        end
+        
+    end
+
+    # second pass: mark `setindex!` calls going to already marked refs
+    for (ref, stmt) in graph
+        if stmt isa Call{typeof(setindex!)}
+            union!(candidates, dependencies(stmt))
+            
+            while !isempty(candidates)
+                candidate = pop!(candidates)
+                
+                if candidate ∈ marked
+                    push!(marked, ref)
+                    break
+                end
+                
+                union!(candidates, dependencies(graph[candidate]))
+                union!(candidates, dependencies(candidate))
             end
         end
     end
 
+    # third step: delete all unmarked nodes
     for unmarked in setdiff(keys(graph), marked)
         delete!(graph, unmarked)
     end
