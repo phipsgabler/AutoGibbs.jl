@@ -150,13 +150,15 @@ end
                                    @varname(state[2]), @varname(state[3]), @varname(state[4]))
 
 
-    # @model dpmixture(x) = begin
+    # @model function dpmixture(x)
     #     rpm = DirichletProcess(1.0)
     #     n = zeros(Int, length(x))
-    #     z = zeros(Int, length(x))    for i in eachindex(x)
+    #     z = zeros(Int, length(x))
+    #     for i in eachindex(x)
     #         z[i] ~ ChineseRestaurantProcess(rpm, n)
     #         n[z[i]] += 1
-    #     end    K = findlast(!iszero, n)
+    #     end
+    #     K = findlast(!iszero, n)
     #     m ~ MvNormal(fill(0.0, K), 1.0)
     #     x ~ MvNormal(m[z], 1.0)
     # end
