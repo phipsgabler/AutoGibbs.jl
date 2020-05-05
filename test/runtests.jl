@@ -128,10 +128,27 @@ end
     end
 
     graph9 = trackdependencies(test9([0.0, 0.1, -0.2]))
-    @test varnames(graph9) == Set([ @varname(s),
+    @test varnames(graph9) == Set([@varname(s),
                                    @varname(x[1]), @varname(x[2]), @varname(x[3]),
                                    @varname(state[1]), @varname(state[2]), @varname(state[3]),
                                    @varname(state[4])])
+    
+
+    @model function test10(x)
+        s ~ Gamma(1.0, 1.0)
+        state = zeros(length(x) + 1)
+        state[1] = 42.0
+        for i in 1:length(x)
+            state[i+1] ~ Normal(state[i], s)
+            x[i] ~ Normal(state[i+1], s)
+        end
+    end
+
+    graph10 = trackdependencies(test10([0.0, 0.1, -0.2]))
+    @test varnames(graph10) == Set(@varname(s),
+                                   @varname(x[1]), @varname(x[2]), @varname(x[3]),
+                                   @varname(state[2]), @varname(state[3]), @varname(state[4]))
+
 
     # @model dpmixture(x) = begin
     #     rpm = DirichletProcess(1.0)
