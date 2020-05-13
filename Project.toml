@@ -10,13 +10,14 @@ Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 DynamicPPL = "366bfd00-2699-11ea-058f-f148b4cae6d8"
 IRTracker = "591544fa-5de1-11e9-31f7-cbfeeb0dfc0e"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
-Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
 
 [compat]
+DynamicPPL = "0.7"
 julia = "1"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
 
 [targets]
-test = ["Test"]
+test = ["Test", "Turing"]
