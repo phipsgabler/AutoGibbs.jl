@@ -236,9 +236,9 @@ Base.show(io::IO, stmt::Constant) = print(io, stmt.value)
 
 IRTracker.getvalue(stmt::Statement) = stmt.value
 
-isdotted(::Assumption{dotted}) where {dotted} = dotted
-isdotted(::Observation{dotted}) where {dotted} = dotted
-
+isdotted(::Type{<:Assumption{dotted}}) where {dotted} = dotted
+isdotted(::Type{<:Observation{dotted}}) where {dotted} = dotted
+isdotted(tilde::Union{Assumption, Observation}) = isdotted(typeof(tilde))
 
 struct Reference{TV<:Union{VarName, Nothing}}
     number::Int
@@ -297,6 +297,7 @@ Base.eltype(graph::Graph) = eltype(graph.statements)
 Base.getindex(graph::Graph, ref::Reference) = graph.statements[ref]
 Base.getindex(graph::Graph, ref::Int) = graph[Reference(ref)]
 Base.setindex!(graph::Graph, stmt, ref) = graph.statements[ref] = stmt
+Base.get(graph::Graph, ref, default) = get(graph.statements, ref, default)
 Base.haskey(graph::Graph, ref) = haskey(graph.statements, ref)
 Base.delete!(graph::Graph, ref) = delete!(graph.statements, ref)
 Base.keys(graph::Graph) = keys(graph.statements)
@@ -328,22 +329,6 @@ end
 
 getmutation(graph::Graph, ref::Reference) = get(graph.mutated_rvs, ref, ref.vn)
 setmutation!(graph, (ref, vn)::Pair) = graph.mutated_rvs[ref] = vn
-# function ismutated(graph, ref, ix)
-#     if ref isa NamedReference
-#         ref_sym = DynamicPPL.getsym(ref.vn)
-#         ref_indexing = map.(ix -> try_getvalue(graph, ix), DynamicPPL.getindexing(ref.vn))
-
-#         for mutated in values(graph.mutated_rvs)
-#             if DynamicPPL.getsym(mutated) == ref_sym
-#                 mut_indexing = map.(ix -> try_getvalue(graph, ix), DynamicPPL.getindexing(mutated))
-#                 @show mut_indexing, ref_indexing
-#                 DynamicPPL.subsumes(mut_indexing, ref_indexing) && return true
-#             end
-#         end
-#     end
-    
-#     return false
-# end
 
 
 function makereference!(graph, node, vn=nothing)
@@ -375,9 +360,9 @@ try_getvalue(graph, constant) = constant
 
 resolve_varname(graph, ref::UnnamedReference) = ref
 function resolve_varname(graph, ref::NamedReference)
-    var = ref.vn
-    sym = DynamicPPL.getsym(var)
-    indexing = DynamicPPL.getindexing(var)
+    vn = ref.vn
+    sym = DynamicPPL.getsym(vn)
+    indexing = DynamicPPL.getindexing(vn)
     return VarName(sym, Tuple(try_getvalue.(Ref(graph), ix) for ix in indexing))
 end
 
@@ -433,13 +418,22 @@ end
 
 function pushtilde!(graph, callingnode, maketilde)
     vn_expr, dist_expr, value_expr = tilde_parameters(callingnode)
+    vn = convertvn!(graph, vn_expr)
     dist = convertdist!(graph, dist_expr)
     value = convertvalue(graph, value_expr)
 
-    vn = convertvn!(graph, vn_expr)
     ref = makereference!(graph, callingnode, vn)
     graph[ref] = maketilde(dist, value)
-    # setmutation!(graph, ref => vn)
+
+    if maketilde <: Assumption{true}
+        # dot_tilde mutates whole array
+        setmutation!(graph, value => vn)
+    end
+
+    if isdotted(maketilde)
+        @warn "Broadcasted tildes ($(graph[ref])) are not fully supported!"
+    end
+    
     return graph
 end
 
@@ -485,12 +479,12 @@ function pushnode!(graph, node::CallingNode{typeof(setindex!)})
     argument_exprs = try_getindex.(getarguments(node))
     arguments = getmapping.(Ref(graph), argument_exprs, argument_exprs)
     mutated, value, indexing = arguments[1], arguments[2], arguments[3:end]
-    if graph[value] isa Union{Assumption, Observation}
+    if value isa Reference && graph[value] isa Union{Assumption, Observation}
         setmutation!(graph, mutated => VarName(DynamicPPL.getsym(value.vn), (indexing,)))
     else
         invoke(pushnode!, Tuple{Graph, CallingNode}, graph, node)
     end
-
+    
     
     return graph
 end
@@ -498,14 +492,19 @@ end
 function pushnode!(graph, node::CallingNode{typeof(getindex)})
     argument_exprs = try_getindex.(getarguments(node))
     arguments = getmapping.(Ref(graph), argument_exprs, argument_exprs)
-    array, index = arguments[1], arguments[2:end]
-    if array isa NamedReference
-        ref = Reference(array.number, VarName(DynamicPPL.getsym(array.vn), (index,)))
+    array_ref, index_refs = arguments[1], arguments[2:end]
+    if array_ref isa NamedReference
+        mapped_refs = getmapping.(Ref(graph), index_refs, index_refs)
+        vn = VarName(DynamicPPL.getsym(array_ref.vn), (mapped_refs,))
+        ref = Reference(array_ref.number, vn)
+        # setmutation!(graph, ref => vn)
         setmapping!(graph, node => ref)
-        return graph
+        # invoke(pushnode!, Tuple{Graph, CallingNode}, graph, node)
     else
-        return invoke(pushnode!, Tuple{Graph, CallingNode}, graph, node)
+        invoke(pushnode!, Tuple{Graph, CallingNode}, graph, node)
     end
+    
+    return graph
 end
 
 function pushnode!(graph, node::ConstantNode)
