@@ -145,9 +145,9 @@ end
     end
 
     graph10 = trackdependencies(test10([0.0, 0.1, -0.2]))
-    @test varnames(graph10) == Set(@varname(s),
+    @test varnames(graph10) == Set([@varname(s),
                                    @varname(x[1]), @varname(x[2]), @varname(x[3]),
-                                   @varname(state[2]), @varname(state[3]), @varname(state[4]))
+                                   @varname(state[2]), @varname(state[3]), @varname(state[4])])
 
 
     # @model function dpmixture(x)
