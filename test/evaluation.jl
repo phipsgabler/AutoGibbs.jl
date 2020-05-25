@@ -66,3 +66,17 @@ graph_hmm = trackdependencies(imm([0.1, -0.05, 1.0], 2))
 end
 
 graph_imm = trackdependencies(imm([0.1, -0.05, 1.0]))
+
+
+@model function changepoint(y)
+    α = 1/mean(y)
+    λ1 ~ Exponential(α)
+    λ2 ~ Exponential(α)
+    τ ~ DiscreteUniform(1, length(y))
+    for idx in 1:length(y)
+        y[idx] ~ Poisson(τ > idx ? λ1 : λ2)
+    end
+    return τ
+end
+
+graph_changepoint = trackdependencies(changepoint([1.1, 0.9, 0.2, 0.3]))
