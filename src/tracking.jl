@@ -4,14 +4,15 @@ using DynamicPPL
 export trackmodel, strip_model_layers
 
 
-const ModelEval = Union{typeof(DynamicPPL.evaluate_singlethreaded),
-                        typeof(DynamicPPL.evaluate_multithreaded)}
+const ModelEval = Union{typeof(DynamicPPL.evaluate_threadsafe),
+                        typeof(DynamicPPL.evaluate_threadunsafe)}
 
 
 struct AutoGibbsContext{F} <: AbstractTrackingContext end
 
 IRTracker.canrecur(ctx::AutoGibbsContext{F}, ::Model{F}, args...) where {F} = true
-IRTracker.canrecur(ctx::AutoGibbsContext{F}, ::ModelEval, ::Model{F}, args...) where {F} = true
+IRTracker.canrecur(ctx::AutoGibbsContext{F}, ::typeof(Core._apply), ::Model{F}, args...) where {F} = true
+IRTracker.canrecur(ctx::AutoGibbsContext{F}, ::ModelEval, rng, ::Model{F}, args...) where {F} = true
 IRTracker.canrecur(ctx::AutoGibbsContext{F}, f::F, args...) where {F} = true
 IRTracker.canrecur(ctx::AutoGibbsContext, f, args...) = false
 
