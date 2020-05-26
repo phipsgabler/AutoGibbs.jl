@@ -78,19 +78,19 @@ Extract from a stripped model trace all model argument `getindex` calls.
 function model_argument_nodes(root)
     # From the beginning of the trace,
     # ```
-    # @1: [Arg:§1:%1] @9#1 = ##evaluator#462
-    # @2: [Arg:§1:%2] @9#2 = Model{...}
-    # @3: [Arg:§1:%3] @9#3 = VarInfo (1 variable (s), dimension 1; logp: -3.957)
-    # @4: [Arg:§1:%4] @9#4 = SampleFromPrior()
-    # @5: [Arg:§1:%5] @9#5 = DefaultContext()
-    # @6: [§1:%6] ⟨getproperty⟩(@2, ⟨:args⟩) = (x = [0.5, 1.1],)
-    # @7: [§1:%7] ⟨getproperty⟩(@6, ⟨:x⟩) = [0.5, 1.1]
-    # @8: [§1:%8] ⟨DynamicPPL.matchingvalue⟩(@4, @3, @7) = [0.5, 1.1]
+    # @1: [Arg:§1:%1] @11#1 → ##evaluator#465
+    # @2: [Arg:§1:%2] @11#2 → Random._GLOBAL_RNG()
+    # @3: [Arg:§1:%3] @11#3 → Model{...}
+    # @4: [Arg:§1:%4] @11#4 → VarInfo (0 variables, dimension 0; logp: 0.0)
+    # @5: [Arg:§1:%5] @11#5 → SampleFromPrior()
+    # @6: [Arg:§1:%6] @11#6 → DefaultContext()
+    # @7: [§1:%7] ⟨getproperty⟩(@3, ⟨:args⟩) → (x = [0.1, 0.05, 1.0],)
+    # @8: [§1:%8] ⟨getproperty⟩(@7, ⟨:x⟩) → [0.1, 0.05, 1.0]
     # ```
     # extract only the `getproperty(@6, ⟨:x⟩)` line (for each argument).
 
     argument_nodes = Vector{AbstractNode}()
-    model_node = getchildren(root)[2]
+    model_node = getchildren(root)[3]
     modelargs_nodes = Vector{AbstractNode}()
     
     for child in getchildren(root)
