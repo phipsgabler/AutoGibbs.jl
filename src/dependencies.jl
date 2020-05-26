@@ -32,8 +32,8 @@ nodes that are not tilde calls.
 tilde_parameters(node::AbstractNode) = nothing
 
 function tilde_parameters(node::CallingNode{typeof(DynamicPPL.tilde_assume)})
-    args = getarguments(node) # ctx, sampler, right, vn, inds, vi
-    vn, dist, value = args[4], args[3], getvalue(node)
+    args = getarguments(node) # rng, ctx, sampler, right, vn, inds, vi
+    vn, dist, value = args[5], args[4], getvalue(node)
     return vn, dist, TapeConstant(value)
 end
 
@@ -47,12 +47,14 @@ function tilde_parameters(node::CallingNode{typeof(DynamicPPL.tilde_observe)})
         # ctx, sampler, right, left, vi
         dist, value = args[3], args[4]
         return nothing, dist, value
+    else
+        throw(ArgumentError("$node has unknown argument structure, you should not have reached this point!"))
     end
 end
 
 function tilde_parameters(node::CallingNode{typeof(DynamicPPL.dot_tilde_assume)})
-    args = getarguments(node) # ctx, sampler, right, left, vn, inds, vi
-    vn, dist, value = args[5], args[3], args[4]
+    args = getarguments(node) # rng, ctx, sampler, right, left, vn, inds, vi
+    vn, dist, value = args[6], args[4], args[5]
     return vn, dist, value
 end
 
@@ -66,6 +68,8 @@ function tilde_parameters(node::CallingNode{typeof(DynamicPPL.dot_tilde_observe)
         # ctx, sampler, right, left, vi
         dist, value = args[3], args[4]
         return nothing, dist, value
+    else
+        throw(ArgumentError("$node has unknown argument structure, you should not have reached this point!"))
     end
 end
 
