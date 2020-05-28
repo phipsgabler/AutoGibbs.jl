@@ -1,3 +1,9 @@
+@model function bernoulli_mixture(x)
+    w ~ Dirichlet(2, 1.0)
+    p ~ DiscreterNonParametric([0.3, 0.7], w)
+    x ~ Bernoulli(p)
+end
+
 @model function gmm(x, K)
     N = length(x)
 
@@ -30,7 +36,7 @@ graph_hmm = trackdependencies(gmm([0.1, -0.05, 1.0], 2))
     # of the transition matrix and the
     # emission matrix.
     for i = 1:K
-        T[i] ~ Dirichlet(ones(K)/K)
+        T[i] ~ Dirichlet(K, 1.0)
         m[i] ~ Normal(i, 0.5)
     end
     
@@ -39,21 +45,23 @@ graph_hmm = trackdependencies(gmm([0.1, -0.05, 1.0], 2))
     y[1] ~ Normal(m[s[1]], 0.1)
 
     for i = 2:N
-        s[i] ~ Categorical(vec(T[s[i-1]]))
+        s[i] ~ Categorical(T[s[i-1]])
         y[i] ~ Normal(m[s[i]], 0.1)
     end
 end
 
-graph_hmm = trackdependencies(imm([0.1, -0.05, 1.0], 2))
+graph_hmm = trackdependencies(hmm([0.1, -0.05, 1.0], 2))
 
 
 @model function imm(x)
     N = length(x)
 
     nk = zeros(Int, N)
+    G = ChineseRestaurantProcess(DirichletProcess(1.0), nk)
+    
     z = zeros(Int, length(x))
     for i in eachindex(x)
-        z[i] ~ ChineseRestaurantProcess(DirichletProcess(1.0), nk)
+        z[i] ~ G
         nk[z[i]] += 1
     end
 
@@ -76,7 +84,6 @@ graph_imm = trackdependencies(imm([0.1, -0.05, 1.0]))
     for idx in 1:length(y)
         y[idx] ~ Poisson(τ > idx ? λ1 : λ2)
     end
-    return τ
 end
 
 graph_changepoint = trackdependencies(changepoint([1.1, 0.9, 0.2, 0.3]))
