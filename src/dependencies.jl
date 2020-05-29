@@ -501,7 +501,7 @@ function pushnode!(graph, node::CallingNode{typeof(getindex)})
         mapped_refs = getmapping.(Ref(graph), index_refs, index_refs)
         vn = VarName(DynamicPPL.getsym(array_ref.vn), (mapped_refs,))
         ref = Reference(array_ref.number, vn)
-        # setmutation!(graph, ref => vn)
+        setmutation!(graph, ref => vn)
         setmapping!(graph, node => ref)
         # invoke(pushnode!, Tuple{Graph, CallingNode}, graph, node)
     else
@@ -553,11 +553,12 @@ function eliminate_leftovers!(graph::Graph)
                 union!(candidates, dependencies(candidate))
             end
         end
-        
     end
 
     # second pass: mark `setindex!` calls going to already marked refs
     for (ref, stmt) in graph
+        empty!(candidates)
+        
         if stmt isa Call{typeof(setindex!)}
             union!(candidates, dependencies(stmt))
             
@@ -583,7 +584,7 @@ end
 
 function makegraph(slice::Vector{<:AbstractNode})
     graph = foldl(pushnode!, slice, init=Graph())
-    eliminate_leftovers!(graph)
+    # eliminate_leftovers!(graph)
     return graph
 end
 
