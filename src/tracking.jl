@@ -24,7 +24,7 @@ struct AutoGibbsContext{F} <: AbstractTrackingContext end
 IRTracker.canrecur(ctx::AutoGibbsContext{F}, f, args...) where {F} = ismodelcall(F, f, args...)
 
 
-trackmodel(model::Model{F}) where {F} = track(AutoGibbsContext{F}(), model)
+trackmodel(model::Model{F}, args...) where {F} = track(AutoGibbsContext{F}(), model, args...)
 
 
 function strip_model_layers(::Type{F}, node::NestedCallNode{<:Any, F}) where {F}

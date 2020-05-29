@@ -589,13 +589,5 @@ function makegraph(slice::Vector{<:AbstractNode})
 end
 
 
-function trackdependencies(model::Model{F}) where {F}
-    trace = trackmodel(model)
-    dependency_slice = strip_dependencies(strip_model_layers(F, trace))
-    return makegraph(dependency_slice)
-end
-
-
-
 
 

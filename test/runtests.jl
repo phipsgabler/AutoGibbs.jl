@@ -15,6 +15,28 @@ check_dependencies(graph) = all(haskey(graph, dep)
                                 for expr in values(graph)
                                 for dep in AutoGibbs.dependencies(expr))
 
+track_with_context(model, ctx) = trackdependencies(model, VarInfo(), SampleFromPrior(), ctx)
+
+
+function testgraph(graph, vns)
+    @test varnames(graph) == Set{VarName}(vns)
+    @test check_dependencies(graph)
+end
+
+macro testmodel(model, varname_exprs...)
+    return quote
+        let m = $(esc(model)),
+            vns = tuple($(DynamicPPL.varname.(varname_exprs)...))
+            
+            graph_default = trackdependencies(m)
+            testgraph(graph_default, vns)
+        
+            graph_likelihood = track_with_context(m, LikelihoodContext())
+            testgraph(graph_likelihood, vns)
+        end
+    end
+end
+
 
 @testset "AutoGibbs.jl" begin
     @model function test0(x)
@@ -23,9 +45,7 @@ check_dependencies(graph) = all(haskey(graph, dep)
         x ~ Normal(m, sqrt(1 / λ))
     end
 
-    graph0 = trackdependencies(test0(1.4))
-    @test varnames(graph0) == Set([@varname(λ), @varname(m), @varname(x)])
-    @test check_dependencies(graph0)
+    @testmodel(test0(1.4), λ, m, x)
 
 
     @model function test1(x)
@@ -33,9 +53,8 @@ check_dependencies(graph) = all(haskey(graph, dep)
         x .~ Normal(0.0, s)
     end
 
-    graph1 = trackdependencies(test1([-0.5, 0.5]))
-    @test varnames(graph1) == Set([@varname(s), @varname(x)])
-    @test check_dependencies(graph1)
+    
+    @testmodel(test1([-0.5, 0.5]), s, x)
 
     
     @model function test2(x)
@@ -45,9 +64,7 @@ check_dependencies(graph) = all(haskey(graph, dep)
         end
     end
 
-    graph2 = trackdependencies(test2([-0.5, 0.5]))
-    @test varnames(graph2) == Set([@varname(s), @varname(x[1]), @varname(x[2])])
-    @test check_dependencies(graph2)
+    @testmodel(test2([-0.5, 0.5]), s, x[1], x[2])
     
     
     @model function test3(w)
@@ -58,12 +75,9 @@ check_dependencies(graph) = all(haskey(graph, dep)
         w ~ MvNormal([x, y, z], 1.2)
     end
     
-    graph3 = trackdependencies(test3([1, 0, 1]))
-    @test varnames(graph3) == Set([@varname(p), @varname(x), @varname(y), @varname(y),
-                                   @varname(z), @varname(w)])
-    @test check_dependencies(graph3)
+    @testmodel(test3([1, 0, 1]), p, x, y, z, w)
 
-    
+ 
     @model function test4(x) 
         μ ~ MvNormal(fill(0, 2), 2.0)
         z = Vector{Int}(undef, length(x))
@@ -73,11 +87,7 @@ check_dependencies(graph) = all(haskey(graph, dep)
         end
     end
     
-    graph4 = trackdependencies(test4([1, 1, -1]))
-    @test varnames(graph4) == Set([@varname(μ),
-                                   @varname(z[1]), @varname(z[2]), @varname(z[3]),
-                                   @varname(x[1]), @varname(x[2]), @varname(x[3])])
-    @test check_dependencies(graph4)
+    @testmodel(test4([1, 1, -1]), μ, z[1], z[2], z[3], x[1], x[2], x[3])
 
     
     @model function test5(x) 
@@ -89,10 +99,7 @@ check_dependencies(graph) = all(haskey(graph, dep)
         end
     end
     
-    graph5 = trackdependencies(test5([1, 1, -1]))
-    @test varnames(graph5) == Set([@varname(μ), @varname(z),
-                                   @varname(x[1]), @varname(x[2]), @varname(x[3])])
-    @test check_dependencies(graph5)
+    @testmodel(test5([1, 1, -1]), μ, z, x[1], x[2], x[3])
 
 
     @model function test6(x, y)
@@ -103,9 +110,7 @@ check_dependencies(graph) = all(haskey(graph, dep)
         y ~ D
     end
 
-    graph6 = trackdependencies(test6(1.4, 1.2))
-    @test varnames(graph6) == Set([@varname(λ), @varname(m), @varname(x), @varname(y)])
-    @test check_dependencies(graph6)
+    @testmodel(test6(1.4, 1.2), λ, m, x, y)
 
     
     @model function test7(x)
@@ -116,9 +121,7 @@ check_dependencies(graph) = all(haskey(graph, dep)
         end
     end
 
-    graph7 = trackdependencies(test7([0.0, 0.1, -0.2]))
-    @test varnames(graph7) == Set([@varname(s), @varname(x[1]), @varname(x[2]), @varname(x[3])])
-    @test check_dependencies(graph7)
+    @testmodel(test7([0.0, 0.1, -0.2]), s, x[1], x[2], x[3])
 
     
     @model function test8()
@@ -126,9 +129,7 @@ check_dependencies(graph) = all(haskey(graph, dep)
         0.1 ~ Normal(0.0, s)
     end
 
-    graph8 = trackdependencies(test8())
-    @test varnames(graph8) == Set([@varname(s)])
-    @test check_dependencies(graph8)
+    testmodel(test8(), s)
 
     
     @model function test9(x)
@@ -141,12 +142,7 @@ check_dependencies(graph) = all(haskey(graph, dep)
         end
     end
 
-    graph9 = trackdependencies(test9([0.0, 0.1, -0.2]))
-    @test varnames(graph9) == Set([@varname(s),
-                                   @varname(x[1]), @varname(x[2]), @varname(x[3]),
-                                   @varname(state[1]), @varname(state[2]), @varname(state[3]),
-                                   @varname(state[4])])
-    @test check_dependencies(graph9)
+    @testmodel(test9([0.0, 0.1, -0.2]), s, x[1], x[2], x[3], state[1], state[2], state[3], state[4])
 
 
     @model function test10(x)
@@ -159,11 +155,7 @@ check_dependencies(graph) = all(haskey(graph, dep)
         end
     end
 
-    graph10 = trackdependencies(test10([0.0, 0.1, -0.2]))
-    @test varnames(graph10) == Set([@varname(s),
-                                    @varname(x[1]), @varname(x[2]), @varname(x[3]),
-                                    @varname(state[2]), @varname(state[3]), @varname(state[4])])
-    @test check_dependencies(graph10)
+    @testmodel(test10([0.0, 0.1, -0.2]), s, x[1], x[2], x[3], state[2], state[3], state[4])
 
 
     @model function test11(x)
@@ -179,9 +171,5 @@ check_dependencies(graph) = all(haskey(graph, dep)
         x ~ MvNormal(m[z], 1.0)
     end
 
-    graph11 = trackdependencies(test11([0.1, 0.05, 1.0]))
-    @test varnames(graph11) == Set([@varname(m), @varname(x),
-                                    @varname(z[1]), @varname(z[2]), @varname(z[3])])
-    @test check_dependencies(graph11)
-
+    @testmodel(test11([0.1, 0.05, 1.0]), m, x, z[1], z[2], z[3])
 end

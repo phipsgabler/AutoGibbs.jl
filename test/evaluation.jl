@@ -1,6 +1,6 @@
 @model function bernoulli_mixture(x)
     w ~ Dirichlet(2, 1.0)
-    p ~ DiscreterNonParametric([0.3, 0.7], w)
+    p ~ DiscreteNonParametric([0.3, 0.7], w)
     x ~ Bernoulli(p)
 end
 
