@@ -98,7 +98,8 @@ end
             x[i] ~ Normal(μ[z[i]], 0.1)
         end
     end
-    
+
+    # there's a bug in DPPL occuring here: https://github.com/TuringLang/DynamicPPL.jl/issues/129
     @testmodel(test5([1, 1, -1]), μ, z, x[1], x[2], x[3])
 
 
