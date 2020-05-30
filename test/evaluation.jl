@@ -4,6 +4,8 @@
     x ~ Bernoulli(p)
 end
 
+graph_bernoulli = trackdependencies(bernoulli_mixture(false))
+
 @model function gmm(x, K)
     N = length(x)
 
