@@ -1,6 +1,10 @@
 using AbstractMCMC
 using DynamicPPL
+using Random
 using Turing
+
+
+export AutoConditional
 
 
 """
@@ -29,14 +33,13 @@ struct AutoConditional{S}
 end
 
 DynamicPPL.getspace(::AutoConditional{S}) where {S} = (S,)
-Turing.alg_str(::AutoConditional) = "AutoConditional"
-Turing.isgibbscomponent(::AutoConditional) = true
+DynamicPPL.alg_str(::AutoConditional) = "AutoConditional"
 
 
 function Turing.Sampler(
     alg::AutoConditional,
     model::Turing.Model,
-    s::Turing.Selector=Turing.Selector()
+    s::DynamicPPL.Selector=DynamicPPL.Selector()
 )
     return Turing.Sampler(alg, Dict{Symbol, Any}(), s, Turing.SamplerState(Turing.VarInfo(model)))
 end

@@ -3,6 +3,11 @@ module AutoGibbs
 include("tracking.jl")
 include("dependencies.jl")
 include("plotting.jl")
+include("conditionals.jl")
+include("auto_conditional.jl")
+
+
+export trackdependencies
 
 
 function trackdependencies(model::Model{F}, args...) where {F}

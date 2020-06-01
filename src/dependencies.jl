@@ -3,7 +3,7 @@ using DynamicPPL
 using Distributions
 using DataStructures: SortedDict
 
-export strip_dependencies, makegraph, showgraph, trackdependencies
+export strip_dependencies, makegraph, showgraph
 
 
 try_getindex(expr::TapeReference) = expr[]
