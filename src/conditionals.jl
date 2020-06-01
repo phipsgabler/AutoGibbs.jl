@@ -52,8 +52,8 @@ function conditioned(d0::DiscreteUnivariateDistribution, blanket_logps)
     return DiscreteNonParametric(Ω, softmax!(logtable))
 end
 
-conditioned(::Distribution, blanket_logps) =
-    throw(ArgumentError("Cannot condition a non-discrete or non-univariate distribution."))
+conditioned(d0::Distribution, blanket_logps) =
+    throw(ArgumentError("Cannot condition a non-discrete or non-univariate distribution $d0."))
 
 
 # from https://github.com/JuliaStats/StatsFuns.jl/blob/master/src/basicfuns.jl#L259
