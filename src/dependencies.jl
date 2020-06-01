@@ -33,20 +33,20 @@ tilde_parameters(node::AbstractNode) = nothing
 
 function tilde_parameters(node::CallingNode{typeof(DynamicPPL.tilde_assume)})
     args = getarguments(node) # rng, ctx, sampler, right, vn, inds, vi
-    vn, dist, value = args[5], args[4], getvalue(node)
-    return vn, dist, TapeConstant(value)
+    vn, dist, value, vi = args[5], args[4], getvalue(node), args[7]
+    return vn, dist, TapeConstant(value), vi
 end
 
 function tilde_parameters(node::CallingNode{typeof(DynamicPPL.tilde_observe)})
     args = getarguments(node)
     if length(args) == 7
         # ctx, sampler, right, left, vname, vinds, vi
-        vn, dist, value = args[5], args[3], args[4]
-        return vn, dist, value
+        vn, dist, value, vi = args[5], args[3], args[4], args[7]
+        return vn, dist, value, vi
     elseif length(args) == 5
         # ctx, sampler, right, left, vi
-        dist, value = args[3], args[4]
-        return nothing, dist, value
+        dist, value, vi = args[3], args[4], args[5]
+        return nothing, dist, value, vi
     else
         throw(ArgumentError("$node has unknown argument structure, you should not have reached this point!"))
     end
@@ -54,20 +54,20 @@ end
 
 function tilde_parameters(node::CallingNode{typeof(DynamicPPL.dot_tilde_assume)})
     args = getarguments(node) # rng, ctx, sampler, right, left, vn, inds, vi
-    vn, dist, value = args[6], args[4], args[5]
-    return vn, dist, value
+    vn, dist, value, vi = args[6], args[4], args[5], args[8]
+    return vn, dist, value, vi
 end
 
 function tilde_parameters(node::CallingNode{typeof(DynamicPPL.dot_tilde_observe)})
     args = getarguments(node)
     if length(args) == 7
         # ctx, sampler, right, left, vn, inds, vi
-        vn, dist, value = args[5], args[3], args[4]
-        return vn, dist, value
+        vn, dist, value, vi = args[5], args[3], args[4], args[7]
+        return vn, dist, value, vi
     elseif length(args) == 5
         # ctx, sampler, right, left, vi
-        dist, value = args[3], args[4]
-        return nothing, dist, value
+        dist, value, vi = args[3], args[4], args[5]
+        return nothing, dist, value, vi
     else
         throw(ArgumentError("$node has unknown argument structure, you should not have reached this point!"))
     end
@@ -205,16 +205,20 @@ abstract type Statement end
 struct Assumption{dotted, TDist<:Statement, TV} <: Statement
     dist::TDist
     value::TV
+    logp::Float64
 end
 
-Assumption{dotted}(dist, value) where {dotted} = Assumption{dotted, typeof(dist), typeof(value)}(dist, value)
+Assumption{dotted}(dist, value, logp) where {dotted} =
+    Assumption{dotted, typeof(dist), typeof(value)}(dist, value, logp)
 
 struct Observation{dotted, TDist<:Statement, TV} <: Statement
     dist::TDist
     value::TV
+    logp::Float64
 end
 
-Observation{dotted}(dist, value) where {dotted} = Observation{dotted, typeof(dist), typeof(value)}(dist, value)
+Observation{dotted}(dist, value, logp) where {dotted} =
+    Observation{dotted, typeof(dist), typeof(value)}(dist, value, logp)
 
 struct Call{TF, TArgs<:Tuple, TV} <: Statement
     f::TF
@@ -420,21 +424,21 @@ function convertvn!(graph, vn_expr::TapeReference)
 end
 
 
-function pushtilde!(graph, callingnode, maketilde)
-    vn_expr, dist_expr, value_expr = tilde_parameters(callingnode)
+function pushtilde!(graph, callingnode, tilde_constructor)
+    vn_expr, dist_expr, value_expr, vi_expr = tilde_parameters(callingnode)
     vn = convertvn!(graph, vn_expr)
     dist = convertdist!(graph, dist_expr)
     value = convertvalue(graph, value_expr)
 
     ref = makereference!(graph, callingnode, vn)
-    graph[ref] = maketilde(dist, value)
+    graph[ref] = tilde_constructor(dist, value, -Inf)
 
-    if maketilde <: Assumption{true}
+    if tilde_constructor <: Assumption{true}
         # dot_tilde mutates whole array
         setmutation!(graph, value => vn)
     end
 
-    if isdotted(maketilde)
+    if isdotted(tilde_constructor)
         @warn "Broadcasted tildes ($(graph[ref])) are not fully supported!"
     end
     
