@@ -1,25 +1,29 @@
+using DataStructures: DefaultDict
 using Distributions
 using DynamicPPL
 
 
 function conditional_dists(graph, varname)
-    subsumed = findall(graph, r -> !isnothing(r.vn) && DynamicPPL.subsumes(varname, r.vn), keys(graph))
-    dists = similar(subsumed, DiscreteNonParametric)
+    dists = Dict{Reference, Distribution}()
+    blankets = DefaultDict{Reference, Float64}(0.0)
     
-    for n in eachindex(subsumed, dists)
-        noderef = subsumed[n]
-        dist = getdist(graph, noderef)
-        blanket = getblanket(graph, noderef)
-        dists[n] = conditioned(dist, blanket)
+    for (ref, stmt) in graph
+        # record distribution of every matching node
+        if !isnothing(ref.vn) && DynamicPPL.subsumes(varname, ref.vn)
+            dists[ref] = getvalue(stmt.dist)
+        end
+
+        # update the blanket logp for all matching parents
+        for p in parents(stmt)
+            if haskey(dists, p)
+                child = graph[p]
+                child_dist, child_value = getvalue(child.dist), child.value
+                blankets[p] += logpdf(child_dist, child_value)
+            end
+        end
     end
 
-    return dists
-end
-
-getdist(graph, noderef) = getvalue(graph[noderef].dist)
-
-function getblanket(graph, noderef)
-    children = filter(graph, )
+    return Dict([r => conditioned(d, blankets[r]) for (r, d) in dists])
 end
 
 
@@ -40,15 +44,15 @@ equivalent to
 
 where the factors `blanket_logps` are the log probabilities in the Markov blanket.
 """
-function conditioned(d0::DiscreteUnivariateDistribution, blanket_logps)
+function conditioned(d0::DiscreteUnivariateDistribution, blanket_logp)
+    local Ω
     try
         Ω = support(d0)
     catch
         throw(ArgumentError("Unable to get the support of $d0 (probably infinite)"))
     end
     
-    logblanket = reduce(+, blanket_logps; init=0.0)
-    logtable = logpdf.(d0, Ω) .+ logblanket
+    logtable = logpdf.(d0, Ω) .+ blanket_logp
     return DiscreteNonParametric(Ω, softmax!(logtable))
 end
 

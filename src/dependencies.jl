@@ -283,6 +283,11 @@ dependencies(ref::NamedReference) =
 dependencies(ref::UnnamedReference) = Reference[]
 
 
+parents(::Constant) = Reference[]
+parents(stmt::Call) = Reference[arg for arg in stmt.args if arg isa Reference]
+parents(stmt::Union{Assumption, Observation}) = parents(stmt.dist)
+
+
 struct Graph
     """Entries in graph: mapping from references to statements."""
     statements::SortedDict{Reference, Statement}
@@ -313,6 +318,26 @@ Base.values(graph::Graph) = values(graph.statements)
 Base.iterate(graph::Graph) = iterate(graph.statements)
 Base.iterate(graph::Graph, state) = iterate(graph.statements, state)
 
+function Base.mapreduce(f, op, graph::Graph; init)
+    for kv in graph
+        init = op(init, f(kv))
+    end
+
+    return init
+end
+
+function Base.filter(f, graph::Graph; init=Vector{eltype(graph)}())
+    for kv in graph
+        f(kv) && push!(init, kv)
+    end
+
+    return init
+end
+
+Base.map(f, graph::Graph; init=Vector{eltype(graph)}()) = mapreduce(f, push!; init=init)
+
+
+getstatements(graph::Graph) = graph.statements
 
 # getmapping(graph::Graph, constant, default) = constant
 function getmapping(graph::Graph, node)
