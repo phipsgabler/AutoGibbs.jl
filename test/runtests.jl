@@ -11,16 +11,22 @@ function varnames(graph)
     return Set(AutoGibbs.resolve_varname(graph, ref) for ref in vars)
 end
 
-check_dependencies(graph) = all(haskey(graph, dep)
-                                for expr in values(graph)
-                                for dep in AutoGibbs.dependencies(expr))
+
+function check_dependencies(graph)
+    refs = keys(graph)
+    subsumes(q, r) = isnothing(q) || (!isnothing(r) && DynamicPPL.subsumes(q, r))
+    matches(dep) = any(ref.number == dep.number && subsumes(ref.vn, dep.vn) for ref in keys(graph))
+    return all(matches(dep) for expr in values(graph) for dep in AutoGibbs.dependencies(expr))
+end
 
 track_with_context(model, ctx) = trackdependencies(model, VarInfo(), SampleFromPrior(), ctx)
 
 
-function testgraph(graph, vns)
-    @test varnames(graph) == Set{VarName}(vns)
-    @test check_dependencies(graph)
+macro testgraph(graph, vns)
+    return quote
+        @test varnames($(esc(graph))) == Set{VarName}($(esc(vns)))
+        @test check_dependencies($(esc(graph)))
+    end
 end
 
 macro testmodel(model, varname_exprs...)
@@ -29,10 +35,10 @@ macro testmodel(model, varname_exprs...)
             vns = tuple($(DynamicPPL.varname.(varname_exprs)...))
             
             graph_default = trackdependencies(m)
-            testgraph(graph_default, vns)
+            @testgraph(graph_default, vns)
         
             graph_likelihood = track_with_context(m, LikelihoodContext())
-            testgraph(graph_likelihood, vns)
+            @testgraph(graph_likelihood, vns)
         end
     end
 end
