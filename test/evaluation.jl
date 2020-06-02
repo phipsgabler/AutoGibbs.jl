@@ -18,7 +18,7 @@ graph_bernoulli = trackdependencies(bernoulli_mixture(false))
     end
 end
 
-graph_hmm = trackdependencies(gmm([0.1, -0.05, 1.0], 2))
+graph_gmm = trackdependencies(gmm([0.1, -0.05, 1.0], 2))
 
 
 @model function hmm(y, K)
