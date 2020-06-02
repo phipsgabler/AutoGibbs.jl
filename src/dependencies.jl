@@ -261,8 +261,8 @@ const NamedReference = Reference{<:VarName}
 Base.show(io::IO, r::UnnamedReference) = print(io, "⟨", r.number, "⟩")
 Base.show(io::IO, r::NamedReference) = print(io, "⟨", r.number, ":", r.vn, "⟩")
 Base.isless(q::Reference, r::Reference) = isless(q.number, r.number)
-Base.hash(r::Reference, h::UInt) = hash(r.number, h)
-Base.:(==)(q::Reference, r::Reference) = (q.number == r.number) #&& (q.vn == r.vn)
+Base.hash(r::Reference, h::UInt) = hash(r.number, hash(r.vn, h))
+Base.:(==)(q::Reference, r::Reference) = (q.number == r.number) && (q.vn == r.vn)
 
 
 dependencies(::Constant) = Reference[]
