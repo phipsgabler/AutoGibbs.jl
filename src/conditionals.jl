@@ -14,7 +14,7 @@ function conditional_dists(graph, varname)
         end
 
         # update the blanket logp for all matching parents
-        for p in parents(stmt)
+        for p in dependencies(stmt)
             if haskey(dists, p)
                 child = graph[p]
                 child_dist, child_value = getvalue(child.dist), child.value
@@ -28,6 +28,8 @@ end
 
 
 DynamicPPL.getlogp(tilde::Union{Assumption, Observation}) = logpdf(tilde.dist, tilde.value)
+
+
 
 """
     conditioned(d0, blanket_logps)
@@ -46,6 +48,7 @@ where the factors `blanket_logps` are the log probabilities in the Markov blanke
 """
 function conditioned(d0::DiscreteUnivariateDistribution, blanket_logp)
     local Ω
+
     try
         Ω = support(d0)
     catch
@@ -55,6 +58,9 @@ function conditioned(d0::DiscreteUnivariateDistribution, blanket_logp)
     logtable = logpdf.(d0, Ω) .+ blanket_logp
     return DiscreteNonParametric(Ω, softmax!(logtable))
 end
+
+# `Product`s can be treated as an array of iid variables
+conditioned(d0::Product, blanket_logp) = Product(conditioned.(d0.v, blanket_logp))
 
 conditioned(d0::Distribution, blanket_logps) =
     throw(ArgumentError("Cannot condition a non-discrete or non-univariate distribution $d0."))
