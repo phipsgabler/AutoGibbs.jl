@@ -4,6 +4,7 @@ function varnames(graph)
 end
 
 
+"""Check whether all dependencies of all variables in a graph in a graph are captured."""
 function check_dependencies(graph)
     refs = keys(graph)
     subsumes(q, r) = isnothing(q) || (!isnothing(r) && DynamicPPL.subsumes(q, r))
