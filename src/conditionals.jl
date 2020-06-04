@@ -23,7 +23,7 @@ function conditional_dists(graph, varname)
         end
     end
 
-    return Dict([r => conditioned(d, blankets[r]) for (r, d) in dists])
+    return [conditioned(d, blankets[r]) for (r, d) in dists]
 end
 
 

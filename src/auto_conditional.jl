@@ -29,11 +29,12 @@ sample(m, Gibbs(AutoConditional(:p), MH(:w)), 10)
 ```
 """
 struct AutoConditional{S}
-    AutoConditional(sym::Symbol) = new{sym}(conditional)
+    AutoConditional(sym::Symbol) = new{sym}()
 end
 
 DynamicPPL.getspace(::AutoConditional{S}) where {S} = (S,)
 DynamicPPL.alg_str(::AutoConditional) = "AutoConditional"
+Turing.isgibbscomponent(::AutoConditional) = true
 
 
 function Turing.Sampler(
@@ -41,7 +42,8 @@ function Turing.Sampler(
     model::Turing.Model,
     s::DynamicPPL.Selector=DynamicPPL.Selector()
 )
-    return Turing.Sampler(alg, Dict{Symbol, Any}(), s, Turing.SamplerState(Turing.VarInfo(model)))
+    state = Turing.Inference.SamplerState(Turing.VarInfo(model))
+    return Turing.Sampler(alg, Dict{Symbol, Any}(), s, state)
 end
 
 
@@ -56,7 +58,7 @@ function AbstractMCMC.step!(
     graph = trackdependencies(model, spl.state.vi)
     vn = DynamicPPL.VarName(S)
     conddists = conditional_dists(graph, vn)
-    updated = rand.(rng, conddist)  
+    updated = rand.(Ref(rng), conddists)
     spl.state.vi[vn] = updated
     
     return transition
