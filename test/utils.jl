@@ -37,3 +37,28 @@ macro testdependencies(model, varname_exprs...)
         end
     end
 end
+
+
+
+macro test_nothrow(ex)
+    orig_ex = Expr(:inert, ex)
+    truthy_ex = quote
+        $(esc(ex))
+        true
+    end
+    result = quote
+        try
+            Test.Returned($truthy_ex, nothing, $(QuoteNode(__source__)))
+        catch _e
+            _e isa Test.InterruptException && rethrow()
+            Test.Returned(false, nothing, $(QuoteNode(__source__)))
+        end
+    end
+    Base.remove_linenums!(result)
+    :(Test.do_test($result, $orig_ex))
+end
+
+function issimilar(d1::DiscreteNonParametric, d2::DiscreteNonParametric; atol::Real=0)
+    return all(isapprox.(support(d1), support(d2); atol=atol)) &&
+        all(isapprox.(probs(d1), probs(d2); atol=atol))
+end
