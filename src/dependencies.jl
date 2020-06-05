@@ -308,7 +308,6 @@ Base.length(graph::Graph) = length(graph.statements)
 Base.IteratorEltype(::Type{Graph}) = Base.HasEltype()
 Base.eltype(graph::Graph) = eltype(graph.statements)
 Base.getindex(graph::Graph, ref::Reference) = graph.statements[ref]
-Base.getindex(graph::Graph, ref::Int) = graph[Reference(ref)]
 Base.setindex!(graph::Graph, stmt, ref) = graph.statements[ref] = stmt
 Base.get(graph::Graph, ref, default) = get(graph.statements, ref, default)
 Base.haskey(graph::Graph, ref) = haskey(graph.statements, ref)
@@ -317,6 +316,15 @@ Base.keys(graph::Graph) = keys(graph.statements)
 Base.values(graph::Graph) = values(graph.statements)
 Base.iterate(graph::Graph) = iterate(graph.statements)
 Base.iterate(graph::Graph, state) = iterate(graph.statements, state)
+
+function Base.getindex(graph::Graph, ref::Int)
+    for (k, v) in graph
+        if k.number == ref
+            return v
+        end
+    end
+    throw(BoundsError(graph, ref))
+end
 
 function Base.mapreduce(f, op, graph::Graph; init)
     for kv in graph

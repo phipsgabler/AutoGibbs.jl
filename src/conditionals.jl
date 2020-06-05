@@ -3,6 +3,9 @@ using Distributions
 using DynamicPPL
 
 
+export conditional_dists
+
+
 function conditional_dists(graph, varname)
     dists = Dict{Reference, Distribution}()
     blankets = DefaultDict{Reference, Float64}(0.0)
