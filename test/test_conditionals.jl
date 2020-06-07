@@ -7,7 +7,7 @@ end
 model_bernoulli = bernoulli_mixture(false)
 graph_bernoulli = trackdependencies(model_bernoulli)
 @testdependencies(model_bernoulli, w, p, x)
-@test_nothrow sample(model_bernoulli, Gibbs(AutoConditional(:p), MH(:w)), 10)
+@test_nothrow sample(model_bernoulli, Gibbs(AutoConditional(:p), MH(:w)), 2)
 
 
 let w = graph_bernoulli[4].value,
@@ -38,7 +38,29 @@ end
 model_gmm = gmm([0.1, -0.05, 1.0], 2)
 graph_gmm = trackdependencies(model_gmm)
 @testdependencies(model_gmm, μ, w, z, x[1], x[2], x[3])
-@test_nothrow sample(model_gmm, Gibbs(AutoConditional(:z), MH(:w, :μ)), 10)
+@test_nothrow sample(model_gmm, Gibbs(AutoConditional(:z), MH(:w, :μ)), 2)
+
+
+@model function gmm_loopy(x, K)
+    N = length(x)
+
+    μ = similar(x, K)
+    for k = 1:K
+        μ[k] ~ Normal()
+    end
+    
+    w ~ Dirichlet(K, 1.0)
+    z = similar(x, Int)
+    for n = 1:N
+        z[n] ~ Categorical(w)
+        x[n] ~ Normal(μ[z[n]], 1.0)
+    end    
+end
+
+model_gmm_loopy = gmm_loopy([0.1, -0.05, 1.0], 2)
+graph_gmm_loopy = trackdependencies(model_gmm_loopy)
+@testdependencies(model_gmm_loopy, μ, w, z, x[1], x[2], x[3])
+@test_nothrow sample(model_gmm_loopy, Gibbs(AutoConditional(:z), MH(:w, :μ)), 2)
 
 
 @model function hmm(x, K)
@@ -75,7 +97,7 @@ end
 model_hmm = hmm([0.1, -0.05, 1.0], 2)
 graph_hmm = trackdependencies(model_hmm)
 @testdependencies(model_hmm, T[1], T[2], m[1], m[2], s[1], s[2], s[3], x[1], x[2], x[3])
-@test_nothrow sample(model_hmm, Gibbs(AutoConditional(:s), MH(:T, :m)), 10)
+@test_nothrow sample(model_hmm, Gibbs(AutoConditional(:s), MH(:T, :m)), 2)
 
 
 @model function imm(x)
@@ -102,7 +124,7 @@ end
 model_imm = imm([0.1, -0.05, 1.0])
 graph_imm = trackdependencies(model_imm)
 @testdependencies(model_imm, z[1], z[2], z[3], μ, x[1], x[2], x[3])
-@test_nothrow sample(model_imm, Gibbs(AutoConditional(:z), MH(:μ)), 10)
+@test_nothrow sample(model_imm, Gibbs(AutoConditional(:z), MH(:μ)), 2)
 
 
 @model function changepoint(y)
@@ -118,4 +140,4 @@ end
 model_changepoint = changepoint([1.1, 0.9, 0.2])
 graph_changepoint = trackdependencies(model_changepoint)
 @testdependencies(model_changepoint, λ1, λ2, τ, y[1], y[2], y[3])
-@test_nothrow sample(model_changepoint, Gibbs(AutoConditional(:τ), MH(:λ1, :λ2)), 10)
+@test_nothrow sample(model_changepoint, Gibbs(AutoConditional(:τ), MH(:λ1, :λ2)), 2)
