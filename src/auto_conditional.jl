@@ -56,10 +56,11 @@ function AbstractMCMC.step!(
     kwargs...
 ) where {S}
     graph = trackdependencies(model, spl.state.vi)
-    vn = DynamicPPL.VarName(S)
-    conddists = conditional_dists(graph, vn)
-    updated = rand.(Ref(rng), conddists)
-    spl.state.vi[vn] = updated
+    conditioned_vn = DynamicPPL.VarName(S)
+    for (vn, dist) in conditional_dists(graph, conditioned_vn)
+        updated = rand(rng, dist)
+        spl.state.vi[vn] = [updated;]
+    end
     
     return transition
 end

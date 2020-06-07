@@ -9,6 +9,7 @@ graph_bernoulli = trackdependencies(model_bernoulli)
 @testdependencies(model_bernoulli, w, p, x)
 @test_nothrow sample(model_bernoulli, Gibbs(AutoConditional(:p), MH(:w)), 10)
 
+
 let w = graph_bernoulli[4].value,
     p = graph_bernoulli[6].value,
     x = graph_bernoulli[2].value,
@@ -17,7 +18,7 @@ let w = graph_bernoulli[4].value,
     z = p1 + p2
 
     local conditional
-    @test_nothrow conditional = conditional_dists(graph_bernoulli, @varname(p))[1]
+    @test_nothrow conditional = conditional_dists(graph_bernoulli, @varname(p))[@varname(p)]
     @test issimilar(conditional, DiscreteNonParametric([0.3, 0.7], [p1 / z, p2 / z]))
 end
 
@@ -92,11 +93,11 @@ graph_hmm = trackdependencies(model_hmm)
     K = findlast(!iszero, nk)
     μ ~ filldist(Normal(), K)
 
-    x = 
     for n in 1:N
         x[n] ~ Normal(μ[z[n]], 1.0)
     end
 end
+
 
 model_imm = imm([0.1, -0.05, 1.0])
 graph_imm = trackdependencies(model_imm)

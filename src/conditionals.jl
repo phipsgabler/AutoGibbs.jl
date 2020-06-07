@@ -6,7 +6,14 @@ using DynamicPPL
 export conditional_dists
 
 
+"""
+    conditional_dists(graph, varname)
+
+Derive a dictionary of Gibbs conditionals for all assumption statements in `graph` that are subsumed
+by `varname`.
+"""
 function conditional_dists(graph, varname)
+    # There can be multiple tildes for one `varname`, e.g., `x[1], x[2]` both subsumed by `x`.
     dists = Dict{Reference, Distribution}()
     blankets = DefaultDict{Reference, Float64}(0.0)
     
@@ -26,9 +33,8 @@ function conditional_dists(graph, varname)
         end
     end
 
-    return [conditioned(d, blankets[r]) for (r, d) in dists]
+    return Dict(r.vn => conditioned(d, blankets[r]) for (r, d) in dists)
 end
-
 
 DynamicPPL.getlogp(tilde::Union{Assumption, Observation}) = logpdf(tilde.dist, tilde.value)
 
@@ -37,7 +43,7 @@ DynamicPPL.getlogp(tilde::Union{Assumption, Observation}) = logpdf(tilde.dist, t
 """
     conditioned(d0, blanket_logps)
 
-Return a conditional distribution for the RV with distribution `d0` within a Markov blanket.
+Return an array of distributions for the RV with distribution `d0` within a Markov blanket.
 
 Constructed as
 
@@ -48,6 +54,8 @@ equivalent to
     logpdf(D, x) = logpdf(d0, x) + ∑ blanket_logps
 
 where the factors `blanket_logps` are the log probabilities in the Markov blanket.
+
+The result is an array to allow to condition `Product` distributions.
 """
 function conditioned(d0::DiscreteUnivariateDistribution, blanket_logp)
     local Ω
