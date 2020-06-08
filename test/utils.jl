@@ -16,26 +16,29 @@ end
 track_with_context(model, ctx) = trackdependencies(model, VarInfo(), SampleFromPrior(), ctx)
 
 
-macro test_dependency_invariants(graph, vns)
+function test_dependency_invariants(graph)
     return quote
-        @test varnames($(esc(graph))) == Set{VarName}($(esc(vns)))
-        @test check_dependencies($(esc(graph)))
+        @test varnames($graph) == Set{VarName}(vns)
+        @test check_dependencies($graph)
     end
 end
 
 
 macro testdependencies(model, varname_exprs...)
-    return quote
+    result = quote
         let m = $(esc(model)),
             vns = tuple($(DynamicPPL.varname.(varname_exprs)...))
             
             graph_default = trackdependencies(m)
-            @test_dependency_invariants(graph_default, vns)
+            $(test_dependency_invariants(:graph_default))
         
             graph_likelihood = track_with_context(m, LikelihoodContext())
-            @test_dependency_invariants(graph_likelihood, vns)
+            $(test_dependency_invariants(:graph_likelihood))
         end
     end
+
+    Base.remove_linenums!(result)
+    return result
 end
 
 
@@ -46,6 +49,7 @@ macro test_nothrow(ex)
         $(esc(ex))
         true
     end
+    
     result = quote
         try
             Test.Returned($truthy_ex, nothing, $(QuoteNode(__source__)))
@@ -54,8 +58,9 @@ macro test_nothrow(ex)
             Test.Returned(false, nothing, $(QuoteNode(__source__)))
         end
     end
+    
     Base.remove_linenums!(result)
-    :(Test.do_test($result, $orig_ex))
+    return :(Test.do_test($result, $orig_ex))
 end
 
 function issimilar(d1::DiscreteNonParametric, d2::DiscreteNonParametric; atol::Real=0)
