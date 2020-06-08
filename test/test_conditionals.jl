@@ -59,7 +59,7 @@ end
 
 model_gmm_loopy = gmm_loopy([0.1, -0.05, 1.0], 2)
 graph_gmm_loopy = trackdependencies(model_gmm_loopy)
-@testdependencies(model_gmm_loopy, μ, w, z, x[1], x[2], x[3])
+@testdependencies(model_gmm_loopy, μ[1], μ[2], w, z[1], z[2], z[3], x[1], x[2], x[3])
 @test_nothrow sample(model_gmm_loopy, Gibbs(AutoConditional(:z), MH(:w, :μ)), 2)
 
 
