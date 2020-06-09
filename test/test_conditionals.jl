@@ -97,7 +97,7 @@ end
 model_hmm = hmm([0.1, -0.05, 1.0], 2)
 graph_hmm = trackdependencies(model_hmm)
 @testdependencies(model_hmm, T[1], T[2], m[1], m[2], s[1], s[2], s[3], x[1], x[2], x[3])
-@test_nothrow sample(model_hmm, Gibbs(AutoConditional(:s), MH(:T, :m)), 2)
+@test_nothrow sample(model_hmm, Gibbs(AutoConditional(:s), MH(:m), MH(:T)), 2)
 
 
 @model function imm(x)
@@ -124,7 +124,8 @@ end
 model_imm = imm([0.1, -0.05, 1.0])
 graph_imm = trackdependencies(model_imm)
 @testdependencies(model_imm, z[1], z[2], z[3], μ, x[1], x[2], x[3])
-@test_nothrow sample(model_imm, Gibbs(AutoConditional(:z), MH(:μ)), 2)
+@test_nothrow sample(model_imm, Gibbs(AutoConditional(:z), HMC(0.01, 10, :μ)), 2)
+@test_broken sample(model_imm, Gibbs(AutoConditional(:z), MH(:μ), 2)
 
 
 @model function changepoint(y)

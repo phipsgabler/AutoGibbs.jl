@@ -6,6 +6,12 @@ using DynamicPPL
 export conditional_dists
 
 
+function dereference(graph, vn::VarName{S}) where {S}
+    indices = map.(r -> try_getvalue(graph, r), DynamicPPL.getindexing(vn))
+    VarName(S, indices)
+end
+
+
 """
     conditional_dists(graph, varname)
 
@@ -33,7 +39,7 @@ function conditional_dists(graph, varname)
         end
     end
 
-    return Dict(r.vn => conditioned(d, blankets[r]) for (r, d) in dists)
+    return Dict(dereference(graph, r.vn) => conditioned(d, blankets[r]) for (r, d) in dists)
 end
 
 DynamicPPL.getlogp(tilde::Union{Assumption, Observation}) = logpdf(tilde.dist, tilde.value)
