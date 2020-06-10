@@ -39,31 +39,33 @@ model_gmm = gmm([0.1, -0.05, 1.0], 2)
 graph_gmm = trackdependencies(model_gmm)
 @testdependencies(model_gmm, μ, w, z, x[1], x[2], x[3])
 @test_nothrow sample(model_gmm, Gibbs(AutoConditional(:z), MH(:w, :μ)), 2)
+@test_nothrow sample(model_gmm, Gibbs(AutoConditional(:z), HMC(0.01, 10, :w, :μ)), 2)
 
 
-@model function gmm_loopy(x, K)
+@model function gmm_loopy(x, K, ::Type{T}=Float64) where {T<:Real}
     N = length(x)
 
-    μ = similar(x, K)
+    μ = Vector{T}(undef, K)
     for k = 1:K
         μ[k] ~ Normal()
     end
     
     w ~ Dirichlet(K, 1.0)
-    z = similar(x, Int)
+    z = Vector{Int}(undef, N)
     for n = 1:N
         z[n] ~ Categorical(w)
         x[n] ~ Normal(μ[z[n]], 1.0)
-    end    
+    end
 end
 
 model_gmm_loopy = gmm_loopy([0.1, -0.05, 1.0], 2)
 graph_gmm_loopy = trackdependencies(model_gmm_loopy)
 @testdependencies(model_gmm_loopy, μ[1], μ[2], w, z[1], z[2], z[3], x[1], x[2], x[3])
 @test_nothrow sample(model_gmm_loopy, Gibbs(AutoConditional(:z), MH(:w, :μ)), 2)
+@test_nothrow sample(model_gmm_loopy, Gibbs(AutoConditional(:z), HMC(0.01, 10, :w, :μ)), 2)
 
 
-@model function hmm(x, K)
+@model function hmm(x, K, ::Type{T}=Float64) where {T<:Real}
     # Get observation length.
     N = length(x)
 
@@ -71,10 +73,10 @@ graph_gmm_loopy = trackdependencies(model_gmm_loopy)
     s = zeros(Int, N)
 
     # Emission matrix.
-    m = Vector(undef, K)
+    m = Vector{T}(undef, K)
 
     # Transition matrix.
-    T = Vector{Vector}(undef, K)
+    T = Vector{Vector{T}}(undef, K)
 
     # Assign distributions to each element
     # of the transition matrix and the
@@ -97,8 +99,8 @@ end
 model_hmm = hmm([0.1, -0.05, 1.0], 2)
 graph_hmm = trackdependencies(model_hmm)
 @testdependencies(model_hmm, T[1], T[2], m[1], m[2], s[1], s[2], s[3], x[1], x[2], x[3])
+@test_nothrow sample(model_hmm, Gibbs(AutoConditional(:s), MH(:m, :T)), 2)
 @test_nothrow sample(model_hmm, Gibbs(AutoConditional(:s), HMC(0.01, 10, :m, :T)), 2)
-@test_broken sample(model_hmm, Gibbs(AutoConditional(:s), MH(:m, :T), 2))
 
 
 @model function imm(x)
@@ -126,6 +128,7 @@ model_imm = imm([0.1, -0.05, 1.0])
 graph_imm = trackdependencies(model_imm)
 @testdependencies(model_imm, z[1], z[2], z[3], μ, x[1], x[2], x[3])
 @test_nothrow sample(model_imm, Gibbs(AutoConditional(:z), MH(:μ)), 2)
+@test_nothrow sample(model_imm, Gibbs(AutoConditional(:z), HMC(0.01, 10, :μ)), 2)
 
 
 @model function changepoint(y)
