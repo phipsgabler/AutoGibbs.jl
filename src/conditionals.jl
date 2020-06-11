@@ -6,9 +6,47 @@ using DynamicPPL
 export conditional_dists
 
 
-function dereference(graph, vn::VarName{S}) where {S}
-    indices = map.(r -> try_getvalue(graph, r), DynamicPPL.getindexing(vn))
-    VarName(S, indices)
+struct LogLikelihood{N, D<:Distribution, T, Args<:Tuple}
+    value::T
+    args::Args
+    
+    function LogLikelihood{N}(::Type{D}, value, args...) where {N, D<:Distribution}
+        L = length(args) + 1
+        @assert 1 ≤ N ≤ L "$N is not in 1:$L"
+        return new{N, D, typeof(value), typeof(args)}(value, args)
+    end
+end
+
+function Base.show(io::IO, ℓ::LogLikelihood{N, D}) where {N, D}
+    L = length(ℓ.args) + 1
+    print(io, "θ -> logpdf(", D, "(")
+    join(io, _splice(N, "θ", ℓ.args), ", ")
+    print(io, "), ", ℓ.value, ")")
+end
+
+function (ℓ::LogLikelihood{N, D, T, Args})(x) where {N, D, T, Args}
+    return logpdf(D(_splice(N, x, ℓ.args)...), ℓ.value)
+end
+
+function _splice(position::Int, value, args::Tuple)
+    if position == 1
+        return (value, args...)
+    elseif 1 < position ≤ length(args) + 1
+        return (first(args), _splice(position - 1, value, Base.tail(args))...)
+    else
+        throw(ArgumentError("Can't insert value into $args at position $position"))
+    end
+end
+
+
+struct Conditional{D<:Distribution, B}
+    var_dist::D
+    blanket_dists::B
+end
+
+function (cond::Conditional{V})(blanket) where {V}
+    blanket_logp = sum(cond.blanket_dists[b](blanket[b]) for b in keys(cond.blanket_dists))
+    return conditioned(cond.dist, blanket_logp)
 end
 
 
@@ -25,22 +63,65 @@ function conditional_dists(graph, varname)
     
     for (ref, stmt) in graph
         # record distribution of every matching node
-        if !isnothing(ref.vn) && DynamicPPL.subsumes(varname, ref.vn)
-            dists[ref] = getvalue(stmt.dist)
-        end
+        if !isnothing(ref.vn)
+            if DynamicPPL.subsumes(varname, ref.vn)
+                dists[ref] = getvalue(stmt.dist)
+            end
 
-        # update the blanket logp for all matching parents
-        for p in dependencies(stmt)
-            if haskey(dists, p)
-                child = graph[p]
-                child_dist, child_value = getvalue(child.dist), child.value
-                blankets[p] += logpdf(child_dist, child_value)
+            # update the blanket logp for all matching parents
+            for p in parents(stmt)
+                if !isnothing(p.vn) && any(dereference(graph, p.vn) == dereference(graph, r.vn)
+                                           for r in keys(dists))
+                    child_dist, child_value = getvalue(stmt.dist), try_getvalue(graph, stmt.value)
+                    blankets[p] += logpdf(child_dist, child_value)
+                end
             end
         end
     end
 
     return Dict(dereference(graph, r.vn) => conditioned(d, blankets[r]) for (r, d) in dists)
 end
+
+
+# function conditionals(graph, varname)
+#     # There can be multiple tildes for one `varname`, e.g., `x[1], x[2]` both subsumed by `x`.
+#     dists = Dict{Reference, Distribution}()
+#     blankets = DefaultDict{Reference, Vector{LogLikelihood}}(Vector{LogLikelihood})
+    
+#     for (ref, stmt) in graph
+#         # record distribution of every matching node
+#         if !isnothing(ref.vn) && DynamicPPL.subsumes(varname, ref.vn)
+#             dists[ref] = getvalue(stmt.dist)
+#         end
+
+        
+#         for p in parents(stmt)
+#             if p isa Union{Assumption, Observation} && haskey(dists, p)
+                
+#             end
+#         end
+        
+#         # record all parents that are random variables
+#         direct_dependencies = Reference[arg for arg in stmt.args if arg isa Reference]
+#         mapreduce(dependencies,
+#                          append!,
+#                          direct_dependencies,
+#                          init=direct_dependencies)
+#         rvs = filter((i, p) -> haskey(dists, p), dependencies(stmt))
+
+#         # update the blanket likelihoods for all rv parents
+
+#         for (i, p) in rvs
+#             child = graph[p]
+#             child_dist, child_value = getvalue(child.dist), child.value
+#             push!(blankets[p], LogLikelihood{i}(typeof(child_dist), child_value, ))
+#         end
+#     end
+
+#     return Dict(dereference(graph, r.vn) => nothing for (r, d) in dists)
+# end
+
+
 
 DynamicPPL.getlogp(tilde::Union{Assumption, Observation}) = logpdf(tilde.dist, tilde.value)
 

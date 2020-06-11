@@ -395,9 +395,21 @@ function showstmt(io::IO, ref, stmt)
 end
 
 
+"""Convert references in VarName indices into values."""
+function dereference(graph, vn::VarName{S}) where {S}
+    indices = map.(r -> try_getvalue(graph, r), DynamicPPL.getindexing(vn))
+    VarName(S, indices)
+end
 
-try_getvalue(graph, ref::Reference) = getvalue(graph[ref])
+"""Follow a reference, leave other values as is."""
 try_getvalue(graph, constant) = constant
+try_getvalue(graph, ref::UnnamedReference) = getvalue(graph[ref])
+function try_getvalue(graph, ref::NamedReference)
+    vn = dereference(graph, ref.vn)
+    stmt = graph[ref.number]
+    return foldl((a, ix) -> a[ix...], DynamicPPL.getindexing(vn), init=getvalue(stmt))
+end
+
 
 resolve_varname(graph, ref::UnnamedReference) = ref
 function resolve_varname(graph, ref::NamedReference)
