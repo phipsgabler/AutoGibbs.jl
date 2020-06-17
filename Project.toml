@@ -13,7 +13,7 @@ Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
 
 [compat]
-DynamicPPL = "0.8"
+DynamicPPL = "= 0.8.1"
 IRTracker = "0.5.1"
-Turing = "0.13"
+Turing = "= 0.13.0"
 julia = "1"
