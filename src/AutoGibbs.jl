@@ -3,7 +3,7 @@ module AutoGibbs
 include("tracking.jl")
 include("dependencies.jl")
 include("plotting.jl")
-# include("vartrie.jl")
+include("vartrie.jl")
 include("conditionals.jl")
 include("auto_conditional.jl")
 
