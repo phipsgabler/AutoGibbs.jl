@@ -1,4 +1,6 @@
+using DataStructures: MutableLinkedList
 using DynamicPPL
+
 
 export VarTrie
 
@@ -86,26 +88,25 @@ Base.setindex!(node::ValueNode, value, index) = (setindex!(node.vals, value, ind
 Base.show(io::IO, node::ValueNode) = print(io, values(node))
 
 
-struct ArrayNode{T, N, TVn<:VarName, TArr<:AbstractArray{T, N}} <: IndexNode{T}
-    vn::TVn
-    vals::TArr
+struct PartitionNode{T, TList<:MutableLinkedList{<:IndexNode{T}}}
+    indices::TList
+    children::TList
 end
 
-Base.keys(node::ArrayNode) = VarName[node.vn]
-Base.values(node::ArrayNode{T}) where {T} = T[node.vals;]
-Base.getindex(node::ArrayNode) = values(node)
-Base.getindex(node::ArrayNode, index) = getindex(node.vals, index...)
-Base.setindex!(node::ArrayNode, value) = setindex!(node.vals, value, :)
-Base.setindex!(node::ArrayNode, value, index) = setindex!(node.vals, value, index...)
-Base.show(io::IO, node::ArrayNode) = print(io, values(node))
+# function Base.getindex(node::PartitionNode, index, indexing...)
+    # for (i, ix) in enumerate(node.indices)
+        # if issubset(ix, index)
+            
+        # end
+    # end
 
-
-
-
-# struct BranchNode{T, N, TChildren<:IndexNode{T}} <: IndexNode{T}
-#     children::Array{TChildren, N}
+    # throw(BoundsError(node, index))
 # end
 
-# function Base.setindex!(node::BranchNode, value, indices...)
-#     setindex!(node.children, value, indices...)
-# end
+# isleft(::Tuple{}, ::Tuple{}) = true
+# isleft(t1::NTuple{N}, t2::NTuple{N}) where {N} = isleft
+
+
+struct SubArrayNode
+    partition::PartitionNode
+end
