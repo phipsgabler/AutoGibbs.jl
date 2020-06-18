@@ -18,39 +18,35 @@ function Base.setindex!(trie::VarTrie, value, vn::VarName{sym, Tuple{}}) where {
     if haskey(trie.nodes, sym)
         setindex!(trie.nodes[sym], value)
     else
-        push!(trie.values, value)
-        trie.nodes[sym] = ScalarNode(vn, @view(trie.values[end:end]))
-    end
-end
-
-function Base.setindex!(trie::VarTrie, value::AbstractArray, vn::VarName{sym, Tuple{}}) where {sym}
-    if haskey(trie.nodes, sym)
-        setindex!(trie.nodes[sym], value)
-    else
         append!(trie.values, value)
         data = @view trie.values[(end - length(value) + 1):end]
-        trie.nodes[sym] = ArrayNode(vn, reshape(data, size(value)))
+        trie.nodes[sym] = ValueNode(vn, reshape(data, size(value)))
     end
+
+    return trie
 end
 
 function Base.setindex!(trie::VarTrie, value, vn::VarName{sym}) where {sym}
     if haskey(trie.nodes, sym)
         setindex!(trie.nodes[sym], value, DynamicPPL.getindexing(vn)...)
     else
-        error("create branch node")
+        # node = SubArrayNode(PartitionNode())
+        error("not implemented")
     end
+
+    return trie
 end
 
 Base.getindex(trie::VarTrie, vn::VarName{sym}) where {sym} =
     getindex(trie.nodes[sym], DynamicPPL.getindexing(vn)...)
 
 
-Base.keys(trie::VarTrie) = mapreduce(keys, append!, values(trie.nodes); init=Vector{VarName}())
+Base.keys(trie::VarTrie) = mapfoldl(keys, append!, values(trie.nodes); init=Vector{VarName}())
 
 # this can probably not be just replaced by trie.values, since the same order as `keys` should
 # be ensured, and we want a copy anyway.
-Base.values(trie::VarTrie{T}) where {T} = mapreduce(values, push!, values(trie.nodes);
-                                                    init=Vector{Union{T, Array{T}}}())
+Base.values(trie::VarTrie{T}) where {T} = mapfoldl(values, push!, values(trie.nodes);
+                                                   init=Vector{Union{T, Array{T}}}())
 
 Base.IteratorSize(::Type{<:VarTrie}) = Base.HasLength()
 Base.length(trie::VarTrie) = length(trie.nodes)
@@ -75,16 +71,19 @@ function Base.show(io::IO, trie::VarTrie{T}) where {T}
 end
 
 
-struct ScalarNode{T, TVn<:VarName, TVal<:AbstractVector{T}} <: IndexNode{T}
+struct ValueNode{T, N, TVn<:VarName, TArr<:AbstractArray{T, N}} <: IndexNode{T}
     vn::TVn
-    vals::TVal
+    vals::TArr
 end
 
-Base.keys(node::ScalarNode) = VarName[node.vn]
-Base.values(node::ScalarNode) = first(node.vals)
-Base.getindex(node::ScalarNode) = values(node)
-Base.setindex!(node::ScalarNode, value) = setindex!(node.vals, value)
-Base.show(io::IO, node::ScalarNode) = print(io, node[])
+Base.keys(node::ValueNode) = VarName[node.vn]
+Base.values(node::ValueNode{T}) where {T} = T[node.vals;]
+Base.values(node::ValueNode{T, 0}) where {T} = first(node.vals)
+Base.getindex(node::ValueNode) = values(node)
+Base.getindex(node::ValueNode, index) = getindex(node.vals, index...)
+Base.setindex!(node::ValueNode, value) = (copyto!(node.vals, value); node)
+Base.setindex!(node::ValueNode, value, index) = (setindex!(node.vals, value, index...); node)
+Base.show(io::IO, node::ValueNode) = print(io, values(node))
 
 
 struct ArrayNode{T, N, TVn<:VarName, TArr<:AbstractArray{T, N}} <: IndexNode{T}
