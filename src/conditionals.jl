@@ -6,13 +6,22 @@ using DynamicPPL
 export conditional_dists
 
 
+"""
+Fix all except the `N`th argument of `D`, and the observed value; if 
+
+    ℓ = LogLikelihood{N}(D, value, args...)
+
+then
+
+    ℓ(x) = logpdf(D(args[1], ..., args[N-1], x, args[N+1], ..., args[K]), value)
+"""
 struct LogLikelihood{N, D<:Distribution, T, Args<:Tuple}
     value::T
     args::Args
     
     function LogLikelihood{N}(::Type{D}, value, args...) where {N, D<:Distribution}
         L = length(args) + 1
-        @assert 1 ≤ N ≤ L "$N is not in 1:$L"
+        (1 ≤ N ≤ L) || throw(ArgumentError("$N is not in 1:$L"))
         return new{N, D, typeof(value), typeof(args)}(value, args)
     end
 end
@@ -24,11 +33,17 @@ function Base.show(io::IO, ℓ::LogLikelihood{N, D}) where {N, D}
     print(io, "), ", ℓ.value, ")")
 end
 
-function (ℓ::LogLikelihood{N, D, T, Args})(x) where {N, D, T, Args}
-    return logpdf(D(_splice(N, x, ℓ.args)...), ℓ.value)
+function (ℓ::LogLikelihood{N, D, T, Args})(θ) where {N, D, T, Args}
+    return logpdf(D(_splice(N, θ, ℓ.args)...), ℓ.value)
 end
 
-function _splice(position::Int, value, args::Tuple)
+
+"""
+    _splice(position, value, args)
+
+Insert `value` into `args` at `position`: `_splice(2, :x, (1, 2, 3)) ~> (1, :x, 2, 3)`.
+"""
+function _splice(position, value, args::Tuple)
     if position == 1
         return (value, args...)
     elseif 1 < position ≤ length(args) + 1
@@ -173,10 +188,10 @@ function softmax!(x::AbstractArray{<:AbstractFloat})
         s += (x[i] = exp(x[i] - u))
     end
     
-    invs = inv(s)
+    s⁻¹ = inv(s)
     
     @inbounds for i in eachindex(x)
-        x[i] *= invs
+        x[i] *= s⁻¹
     end
     
     return x
