@@ -1,4 +1,15 @@
-# Bernoulli mixture
+# Definitions on index expressions
+
+“Simple” means: an `Integer` or a `UnitRange` of `Integer`s.
+
+Restrictions on indices:
+
+- Only simple indices: `x[i]`, `x[i:j]`, `x[y[i]]` where `y[i]` is simple are allowed, 
+  `x[[i, j]]` and `x[y[i]]` where `y[i]` is not simple are not.
+- No nested indexing: `x[i,j]` for simple `i, j` are allowed, `x[i][j]` is not.
+
+
+## Bernoulli mixture
 
 ```julia
 @model function bernoulli_mixture(x)
@@ -16,7 +27,7 @@ end
 ```
 
 
-# GMM
+## GMM
 
 ```julia
 @model function gmm(x, K)
@@ -59,7 +70,7 @@ end
 
 
 
-# Hidden Markov Model
+## Hidden Markov Model
 
 ```julia
 @model function hmm(x, K, ::Type{T}=Float64) where {T<:Real}
@@ -136,7 +147,7 @@ end
 
 
 
-# Infinite Mixture Model
+## Infinite Mixture Model
 
 
 ```julia
@@ -208,7 +219,7 @@ end
 ```
 
 
-# Changepoint model
+## Changepoint model
 
 ```julia
 @model function changepoint(y)
