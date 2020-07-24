@@ -65,6 +65,8 @@ function (cond::Conditional{V})(blanket) where {V}
 end
 
 
+components(vn, indices) = [VarName(getsym(vn), ix) for ix in indices]
+
 """
     conditional_dists(graph, varname)
 
@@ -73,28 +75,44 @@ by `varname`.
 """
 function conditional_dists(graph, varname)
     # There can be multiple tildes for one `varname`, e.g., `x[1], x[2]` both subsumed by `x`.
-    dists = Dict{Reference, Distribution}()
-    blankets = DefaultDict{Reference, Float64}(0.0)
+    dists = Dict{VarName, Distribution}()
+    blankets = DefaultDict{VarName, Float64}(0.0)
     
     for (ref, stmt) in graph
         # record distribution of every matching node
         if !isnothing(ref.vn)
-            if DynamicPPL.subsumes(varname, ref.vn)
-                dists[ref] = getvalue(stmt.dist)
+            ref_vn = dereference(graph, ref.vn)
+            
+            if DynamicPPL.subsumes(varname, ref_vn)
+                dist = getvalue(stmt.dist)
+                dists[ref_vn] = dist
+
+                # if dist isa Product
+                #     components = dist.v
+                #      for i in eachindex(components)
+                #          dists[VarName(ref_vn, ((i,),))] = components[i]
+                #      end
+                # end
             end
 
             # update the blanket logp for all matching parents
-            for p in parents(stmt)
-                if !isnothing(p.vn) && any(dereference(graph, p.vn) == dereference(graph, r.vn)
+            for p in dependencies(stmt.dist)
+                !isnothing(p.vn) && @show dereference(graph, p.vn)
+                if !isnothing(p.vn) && any(DynamicPPL.subsumes(r, dereference(graph, p.vn))
                                            for r in keys(dists))
+                    @show p
                     child_dist, child_value = getvalue(stmt.dist), try_getvalue(graph, stmt.value)
-                    blankets[p] += logpdf(child_dist, child_value)
+                    ℓ = logpdf(child_dist, child_value)
+                    @show ℓ
+                    blankets[dereference(graph, p.vn)] += ℓ
                 end
             end
         end
     end
 
-    return Dict(dereference(graph, r.vn) => conditioned(d, blankets[r]) for (r, d) in dists)
+    # @show blankets
+    @show keys(dists)
+    return Dict(vn => conditioned(d, blankets[vn]) for (vn, d) in dists)
 end
 
 

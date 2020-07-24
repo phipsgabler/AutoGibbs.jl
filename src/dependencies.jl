@@ -24,7 +24,7 @@ istilde(::AbstractNode) = false
 """
     tilde_parameters(node)
 
-Extract a tuple of variablen name, distribution, and value argument of any tilde call.  
+Extract a tuple of variablen name, distribution, and value argument of any tilde call.
 
 The variable name can be `nothing` for constant observations.  The whole value is `nothing` for 
 nodes that are not tilde calls.
@@ -91,7 +91,7 @@ function model_argument_nodes(root)
     # @7: [§1:%7] ⟨getproperty⟩(@3, ⟨:args⟩) → (x = [0.1, 0.05, 1.0],)
     # @8: [§1:%8] ⟨getproperty⟩(@7, ⟨:x⟩) → [0.1, 0.05, 1.0]
     # ```
-    # extract only the `getproperty(@6, ⟨:x⟩)` line (for each argument).
+    # extract only the `getproperty(@n, ⟨:varname⟩)` line for each argument.
 
     argument_nodes = Vector{AbstractNode}()
     model_node = getchildren(root)[3]
@@ -156,7 +156,6 @@ function strip_dependencies(root)
     # later operations mutating earlier values(e.g, z = zeros(), z[1] ~ D, x ~ D2(z[1])).
     
     dependencies = model_argument_nodes(root)
-    # dependencies = Vector{AbstractNode}()
     candidates = Set{AbstractNode}()
     mutants = Dict{AbstractNode, Vector{AbstractNode}}()
 
@@ -280,7 +279,7 @@ function dependencies(stmt::Call)
 end
 dependencies(ref::NamedReference) =
     Reference[ix for index in DynamicPPL.getindexing(ref.vn) for ix in index if ix isa Reference]
-dependencies(ref::UnnamedReference) = Reference[]
+dependencies(ref::UnnamedReference) = Reference[ref]
 
 
 parents(::Constant) = Reference[]
@@ -398,7 +397,7 @@ end
 """Convert references in VarName indices into values."""
 function dereference(graph, vn::VarName{S}) where {S}
     indices = map.(r -> try_getvalue(graph, r), DynamicPPL.getindexing(vn))
-    VarName(S, indices)
+    return VarName(S, indices)
 end
 
 """Follow a reference, leave other values as is."""
@@ -431,11 +430,14 @@ convertvalue(graph, expr::TapeConstant) = getvalue(expr)
 
 convertdist!(graph, dist_expr::TapeConstant) = Constant(getvalue(dist))
 function convertdist!(graph, dist_expr::TapeReference)
+    @show graph
     ref = getmapping(graph, dist_expr[], nothing)
+    println()
     if haskey(graph, ref)
-        # move the separeate distribution call into the node and delete it from the graph
+        # move the separate distribution call into the node and delete it from the graph
         dist = graph[ref]
         delete!(graph, ref)
+        @show graph
         return dist
     else
         # the distribution node existed, but has already been deleted, so we reconstruct it
@@ -474,7 +476,7 @@ function pushtilde!(graph, callingnode, tilde_constructor)
     vn = convertvn!(graph, vn_expr)
     dist = convertdist!(graph, dist_expr)
     value = convertvalue(graph, value_expr)
-
+    
     ref = makereference!(graph, callingnode, vn)
     graph[ref] = tilde_constructor(dist, value, -Inf)
 
