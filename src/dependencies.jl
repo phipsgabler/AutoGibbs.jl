@@ -199,6 +199,10 @@ end
 
 
 
+
+
+
+
 abstract type Statement end
 
 struct Assumption{dotted, TDist<:Statement, TV} <: Statement
@@ -295,12 +299,12 @@ struct Graph
     reference_mapping::Dict{AbstractNode, Reference}
 
     """Remembers which references describe arrays that have been discovered to have been mutated"""
-    mutated_rvs::Dict{Reference, VarName}
+    mutated_rvs::Dict{Tuple{Reference, Tuple}, Reference}
 end
 
 Graph() = Graph(SortedDict{Reference, Statement}(),
                 Dict{AbstractNode, Reference}(),
-                Dict{Reference, VarName}())
+                Dict{Reference, Reference}())
 
 Base.IteratorSize(::Type{Graph}) = Base.HasLength()
 Base.length(graph::Graph) = length(graph.statements)
@@ -346,10 +350,9 @@ Base.map(f, graph::Graph; init=Vector{eltype(graph)}()) = mapreduce(f, push!; in
 
 getstatements(graph::Graph) = graph.statements
 
-# getmapping(graph::Graph, constant, default) = constant
 function getmapping(graph::Graph, node)
     ref = graph.reference_mapping[node]
-    return Reference(ref.number, getmutation(graph, ref))
+    return ref
 end
 function getmapping(graph::Graph, node, default)
     if haskey(graph.reference_mapping, node)
@@ -367,8 +370,9 @@ function deletemapping!(graph::Graph, node)
     return graph
 end
 
-getmutation(graph::Graph, ref::Reference) = get(graph.mutated_rvs, ref, ref.vn)
-setmutation!(graph, (ref, vn)::Pair) = graph.mutated_rvs[ref] = vn
+getmutation(graph::Graph, ref::Reference, indices) = get(graph.mutated_rvs, (ref, indices), ref)
+setmutation!(graph, ((ref, indices), vn)) = graph.mutated_rvs[(ref, indices)] = vn
+hasmutation(graph, ref, indices) = haskey(graph.mutated_rvs, (ref, indices))
 
 
 function makereference!(graph, node, vn=nothing)
@@ -402,12 +406,13 @@ end
 
 """Follow a reference, leave other values as is."""
 try_getvalue(graph, constant) = constant
-try_getvalue(graph, ref::UnnamedReference) = getvalue(graph[ref])
-function try_getvalue(graph, ref::NamedReference)
-    vn = dereference(graph, ref.vn)
-    stmt = graph[ref.number]
-    return foldl((a, ix) -> a[ix...], DynamicPPL.getindexing(vn), init=getvalue(stmt))
-end
+# try_getvalue(graph, ref::UnnamedReference) = getvalue(graph[ref])
+# function try_getvalue(graph, ref::NamedReference)
+#     vn = dereference(graph, ref.vn)
+#     stmt = graph[ref.number]
+#     return foldl((a, ix) -> a[ix...], DynamicPPL.getindexing(vn), init=getvalue(stmt))
+# end
+try_getvalue(graph, ref::Reference) = getvalue(graph[ref])
 
 
 resolve_varname(graph, ref::UnnamedReference) = ref
@@ -430,14 +435,11 @@ convertvalue(graph, expr::TapeConstant) = getvalue(expr)
 
 convertdist!(graph, dist_expr::TapeConstant) = Constant(getvalue(dist))
 function convertdist!(graph, dist_expr::TapeReference)
-    @show graph
     ref = getmapping(graph, dist_expr[], nothing)
-    println()
     if haskey(graph, ref)
         # move the separate distribution call into the node and delete it from the graph
         dist = graph[ref]
         delete!(graph, ref)
-        @show graph
         return dist
     else
         # the distribution node existed, but has already been deleted, so we reconstruct it
@@ -481,8 +483,8 @@ function pushtilde!(graph, callingnode, tilde_constructor)
     graph[ref] = tilde_constructor(dist, value, -Inf)
 
     if tilde_constructor <: Assumption{true}
-        # dot_tilde mutates whole array
-        setmutation!(graph, value => vn)
+        # dot_tilde mutates whole array -- empty indexing
+        setmutation!(graph, (value, ()) => vn)
     end
 
     if isdotted(tilde_constructor)
@@ -519,8 +521,8 @@ function pushnode!(graph, node::CallingNode{typeof(DynamicPPL.matchingvalue)})
         delete!(graph, getmapping(graph, getproperty_node))
         argname = getvalue(getargument(getproperty_node, 2))
     else
-        # this will probably never happen...?
         argname = gensym("argument")
+        @warn "this probably shouldn't have happened..."
     end
 
     ref = makereference!(graph, node)
@@ -534,27 +536,30 @@ function pushnode!(graph, node::CallingNode{typeof(setindex!)})
     argument_exprs = try_getindex.(getarguments(node))
     arguments = getmapping.(Ref(graph), argument_exprs, argument_exprs)
     mutated, value, indexing = arguments[1], arguments[2], arguments[3:end]
+    indexing_values = try_getvalue.(Ref(graph), indexing)
+    
     if value isa Reference && graph[value] isa Union{Assumption, Observation}
-        setmutation!(graph, mutated => VarName(DynamicPPL.getsym(value.vn), (indexing,)))
+        setmutation!(graph, (mutated, indexing_values) => value)
     else
         invoke(pushnode!, Tuple{Graph, CallingNode}, graph, node)
     end
-    
     
     return graph
 end
 
 function pushnode!(graph, node::CallingNode{typeof(getindex)})
+    # @180: ⟨getindex⟩(@9, @135) → -0.05
     argument_exprs = try_getindex.(getarguments(node))
     arguments = getmapping.(Ref(graph), argument_exprs, argument_exprs)
-    array_ref, index_refs = arguments[1], arguments[2:end]
-    if array_ref isa NamedReference
-        mapped_refs = getmapping.(Ref(graph), index_refs, index_refs)
-        vn = VarName(DynamicPPL.getsym(array_ref.vn), (mapped_refs,))
-        ref = Reference(array_ref.number, vn)
-        setmutation!(graph, ref => vn)
-        setmapping!(graph, node => ref)
-        # invoke(pushnode!, Tuple{Graph, CallingNode}, graph, node)
+    array, indexing = arguments[1], arguments[2:end]
+    indexing_values = try_getvalue.(Ref(graph), indexing)
+    
+    if hasmutation(graph, array, indexing_values)
+        mutated = getmutation(graph, array, indexing_values)
+        # new_vn = VarName(mutated.vn, (indexing,))
+        ref = makereference!(graph, node)
+        # @show getvalue(graph[mutated])
+        graph[ref] = Call(identity, (mutated,), getvalue(graph[mutated]))
     else
         invoke(pushnode!, Tuple{Graph, CallingNode}, graph, node)
     end
@@ -634,7 +639,10 @@ function eliminate_leftovers!(graph::Graph)
 end
 
 function makegraph(slice::Vector{<:AbstractNode})
-    graph = foldl(pushnode!, slice, init=Graph())
+    graph = foldl(slice, init=Graph()) do graph, node
+        # @show node
+        pushnode!(graph, node)
+    end
     # eliminate_leftovers!(graph)
     return graph
 end

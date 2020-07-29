@@ -32,8 +32,8 @@ macro testdependencies(model, varname_exprs...)
             graph_default = trackdependencies(m)
             $(test_dependency_invariants(:graph_default))
         
-            graph_likelihood = track_with_context(m, LikelihoodContext())
-            $(test_dependency_invariants(:graph_likelihood))
+            # graph_likelihood = track_with_context(m, LikelihoodContext())
+            # $(test_dependency_invariants(:graph_likelihood))
         end
     end
 
