@@ -6,9 +6,20 @@ end
 
 """Check whether all dependencies of all variables in a graph in a graph are captured."""
 function check_dependencies(graph)
-    refs = keys(graph)
-    subsumes(q, r) = isnothing(q) || (!isnothing(r) && DynamicPPL.subsumes(q, r))
-    matches(dep) = any(ref.number == dep.number && subsumes(ref.vn, dep.vn) for ref in keys(graph))
+    function subsumes(q, r)
+        q_resolved = AutoGibbs.resolve_varname(graph, q)
+        r_resolved = AutoGibbs.resolve_varname(graph, r)
+        
+        isnothing(q_resolved) && return true
+        if !isnothing(r_resolved)
+            return DynamicPPL.subsumes(q_resolved, r_resolved)
+        else
+            return false
+        end
+    end
+    
+    matches(dep) = any(ref.number == dep.number && subsumes(ref, dep) for ref in keys(graph))
+    
     return all(matches(dep) for expr in values(graph) for dep in AutoGibbs.dependencies(expr))
 end
 

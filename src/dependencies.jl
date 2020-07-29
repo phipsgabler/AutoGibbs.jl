@@ -276,10 +276,11 @@ function dependencies(stmt::Union{Assumption, Observation})
 end
 function dependencies(stmt::Call)
     direct_dependencies = Reference[arg for arg in stmt.args if arg isa Reference]
-    return mapreduce(dependencies,
-                     append!,
-                     direct_dependencies,
-                     init=direct_dependencies)
+    # return mapreduce(dependencies,
+                     # append!,
+                     # direct_dependencies,
+    # init=direct_dependencies)
+    return direct_dependencies
 end
 dependencies(ref::NamedReference) =
     Reference[ix for index in DynamicPPL.getindexing(ref.vn) for ix in index if ix isa Reference]
@@ -415,7 +416,7 @@ try_getvalue(graph, constant) = constant
 try_getvalue(graph, ref::Reference) = getvalue(graph[ref])
 
 
-resolve_varname(graph, ref::UnnamedReference) = ref
+resolve_varname(graph, ref::UnnamedReference) = ref.vn
 function resolve_varname(graph, ref::NamedReference)
     vn = ref.vn
     sym = DynamicPPL.getsym(vn)
@@ -484,7 +485,7 @@ function pushtilde!(graph, callingnode, tilde_constructor)
 
     if tilde_constructor <: Assumption{true}
         # dot_tilde mutates whole array -- empty indexing
-        setmutation!(graph, (value, ()) => vn)
+        setmutation!(graph, (value, ()) => ref)
     end
 
     if isdotted(tilde_constructor)

@@ -97,13 +97,13 @@ function conditional_dists(graph, varname)
 
             # update the blanket logp for all matching parents
             for p in dependencies(stmt.dist)
-                !isnothing(p.vn) && @show dereference(graph, p.vn)
+                # !isnothing(p.vn) && @show dereference(graph, p.vn)
                 if !isnothing(p.vn) && any(DynamicPPL.subsumes(r, dereference(graph, p.vn))
                                            for r in keys(dists))
-                    @show p
+                    # @show p
                     child_dist, child_value = getvalue(stmt.dist), try_getvalue(graph, stmt.value)
                     ℓ = logpdf(child_dist, child_value)
-                    @show ℓ
+                    # @show ℓ
                     blankets[dereference(graph, p.vn)] += ℓ
                 end
             end
