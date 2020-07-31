@@ -10,10 +10,15 @@ include("auto_conditional.jl")
 export trackdependencies
 
 
-function trackdependencies(model::Model{F}, args...) where {F}
+function slicedependencies(model::Model{F}, args...) where {F}
     trace = trackmodel(model, args...)
-    dependency_slice = strip_dependencies(strip_model_layers(F, trace))
-    return makegraph(dependency_slice)
+    slice = strip_dependencies(strip_model_layers(F, trace))
+    return slice
+end
+
+function trackdependencies(model, args...)
+    slice = slicedependencies(model, args...)
+    return makegraph(slice)
 end
 
 
