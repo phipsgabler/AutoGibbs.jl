@@ -200,49 +200,77 @@ end
 
 
 
+struct Reference
+    number::Int
+end
 
+Base.show(io::IO, r::Reference) = print(io, "⟨", r.number, "⟩")
+Base.isless(q::Reference, r::Reference) = isless(q.number, r.number)
+Base.hash(r::Reference, h::UInt) = hash(r.number, h)
+Base.:(==)(q::Reference, r::Reference) = q.number == r.number
 
 
 abstract type Statement end
 
-struct Assumption{dotted, TDist<:Statement, TV} <: Statement
+struct Assumption{dotted, TN<:VarName, TDist<:Statement, TVal} <: Statement
+    vn::TN
     dist::TDist
-    value::TV
+    value::TVal
     logp::Float64
 end
 
-Assumption{dotted}(dist, value, logp) where {dotted} =
-    Assumption{dotted, typeof(dist), typeof(value)}(dist, value, logp)
+Assumption{dotted}(vn, dist, value, logp) where {dotted} =
+    Assumption{dotted, typeof(vn), typeof(dist), typeof(value)}(vn, dist, value, logp)
 
-struct Observation{dotted, TDist<:Statement, TV} <: Statement
+struct Observation{dotted, TN<:VarName, TDist<:Statement, TVal} <: Statement
+    vn::TN
     dist::TDist
-    value::TV
+    value::TVal
     logp::Float64
 end
 
-Observation{dotted}(dist, value, logp) where {dotted} =
-    Observation{dotted, typeof(dist), typeof(value)}(dist, value, logp)
+Observation{dotted}(vn, dist, value, logp) where {dotted} =
+    Observation{dotted, typeof(vn), typeof(dist), typeof(value)}(vn, dist, value, logp)
 
-struct Call{TF, TArgs<:Tuple, TV} <: Statement
+struct Call{TD<:Union{Nothing, Tuple{VarName, Reference}}, TF, TArgs<:Tuple, TVal} <: Statement
+    definition::TD
     f::TF
     args::TArgs
-    value::TV
+    value::TVal
 end
 
-struct Constant{TV} <: Statement
-    value::TV
+Call(f, args, value) = Call(nothing, f, args, value)
+
+struct Constant{TVal} <: Statement
+    value::TVal
 end
 
 
 
-shortname(d::Type{<:Distribution}) = string(nameof(d))
-shortname(other) = string(other)
+_shortname(d::Type{<:Distribution}) = string(nameof(d))
+_shortname(other) = string(other)
 
-Base.show(io::IO, stmt::Assumption) =
-    print(io, shortname(stmt.dist.f), "(", join(stmt.dist.args, ", "), ") → ", stmt.value)
-Base.show(io::IO, stmt::Observation) =
-    print(io, shortname(stmt.dist.f), "(", join(stmt.dist.args, ", "), ") ← ", stmt.value)
-Base.show(io::IO, stmt::Call) = print(io, stmt.f, "(", join(stmt.args, ", "), ") → ", stmt.value)
+function Base.show(io::IO, stmt::Assumption)
+    print(io, stmt.vn, (isdotted(stmt) ? " .~ " : " ~ "), _shortname(stmt.dist.f), "(")
+    join(io, stmt.dist.args, ", ")
+    print(io, ") → ", stmt.value)
+end
+function Base.show(io::IO, stmt::Observation)
+    print(io, stmt.vn, (isdotted(stmt) ? " .⩪ " : " ⩪ "), _shortname(stmt.dist.f), "(")
+    join(io, stmt.dist.args, ", ")
+    print(io, ") ← ", stmt.value)
+end
+function Base.show(io::IO, stmt::Call)
+    print(io, stmt.f)
+    print(io, "(")
+    join(io, stmt.args, ", ")
+    print(io, ") → ", stmt.value)
+end
+function Base.show(io::IO, stmt::Call{<:VarName})
+    vn, loc = stmt.definition
+    print(io, vn, " = ")
+    invoke(Base.show, Tuple{IO, Call}, io, stmt)
+end
 Base.show(io::IO, stmt::Constant) = print(io, stmt.value)
 
 IRTracker.getvalue(stmt::Statement) = stmt.value
@@ -251,45 +279,49 @@ isdotted(::Type{<:Assumption{dotted}}) where {dotted} = dotted
 isdotted(::Type{<:Observation{dotted}}) where {dotted} = dotted
 isdotted(tilde::Union{Assumption, Observation}) = isdotted(typeof(tilde))
 
-struct Reference{TV<:Union{VarName, Nothing}}
-    number::Int
-    vn::TV
-end
 
-Reference(number) = Reference(number, nothing)
+getvn(stmt::Union{Assumption, Observation}) = stmt.vn
+getvn(stmt::Call) = isnothing(stmt.definition) ? nothing : stmt.definition[1]
+getvn(::Constant) = nothing
 
-const UnnamedReference = Reference{Nothing}
-const NamedReference = Reference{<:VarName}
 
-Base.show(io::IO, r::UnnamedReference) = print(io, "⟨", r.number, "⟩")
-Base.show(io::IO, r::NamedReference) = print(io, "⟨", r.number, ":", r.vn, "⟩")
-Base.isless(q::Reference, r::Reference) = isless(q.number, r.number)
-Base.hash(r::Reference, h::UInt) = hash(r.number, hash(r.vn, h))
-Base.:(==)(q::Reference, r::Reference) = (q.number == r.number) && (q.vn == r.vn)
+"""
+    dependencies(stmt)
 
+Direct dependencies of a graph statement: all references that occur within it
+"""
+function dependencies end
 
 dependencies(::Constant) = Reference[]
 function dependencies(stmt::Union{Assumption, Observation})
-    direct_dependencies = dependencies(stmt.dist)
-    stmt.value isa Reference && push!(direct_dependencies, stmt.value)
-    return direct_dependencies
+    deps = dependencies(stmt.dist)
+    stmt.value isa Reference && push!(deps, stmt.value)
+    return deps
 end
 function dependencies(stmt::Call)
-    direct_dependencies = Reference[arg for arg in stmt.args if arg isa Reference]
-    # return mapreduce(dependencies,
-                     # append!,
-                     # direct_dependencies,
-    # init=direct_dependencies)
-    return direct_dependencies
+    deps = Reference[arg for arg in stmt.args if arg isa Reference]
+    if !isnothing(stmt.definition)
+        vn, location = stmt.definition
+        push!(deps, location)
+    end
+    return deps
 end
-dependencies(ref::NamedReference) =
-    Reference[ix for index in DynamicPPL.getindexing(ref.vn) for ix in index if ix isa Reference]
-dependencies(ref::UnnamedReference) = Reference[ref]
+# dependencies(ref::NamedReference) =
+    # Reference[ix for index in DynamicPPL.getindexing(ref.vn) for ix in index if ix isa Reference]
+# dependencies(ref::UnnamedReference) = Reference[ref]
 
 
-parents(::Constant) = Reference[]
-parents(stmt::Call) = Reference[arg for arg in stmt.args if arg isa Reference]
-parents(stmt::Union{Assumption, Observation}) = parents(stmt.dist)
+"""
+    recursive_dependencies(tilde)
+
+Chained dependencies of a sampling statement `tilde`, up to the previous sampling.
+"""
+function recursive_dependencies end
+
+recursive_dependencies(stmt::Constant) = dependencies(stmt)
+function recursive_dependencies(stmt::Union{Assumption, Observation})
+    
+end
 
 
 struct Graph
@@ -321,14 +353,8 @@ Base.values(graph::Graph) = values(graph.statements)
 Base.iterate(graph::Graph) = iterate(graph.statements)
 Base.iterate(graph::Graph, state) = iterate(graph.statements, state)
 
-function Base.getindex(graph::Graph, ref::Int)
-    for (k, v) in graph
-        if k.number == ref
-            return v
-        end
-    end
-    throw(BoundsError(graph, ref))
-end
+# just intended for debugging
+Base.getindex(graph::Graph, i::Int) = graph[Ref(i)]
 
 function Base.mapreduce(f, op, graph::Graph; init)
     for kv in graph
@@ -376,53 +402,18 @@ setmutation!(graph, ((ref, indices), vn)) = graph.mutated_rvs[(ref, indices)] = 
 hasmutation(graph, ref, indices) = haskey(graph.mutated_rvs, (ref, indices))
 
 
-function makereference!(graph, node, vn=nothing)
-    newref = Reference(length(graph.reference_mapping) + 1, vn)
+function makereference!(graph, node)
+    newref = Reference(length(graph.reference_mapping) + 1)
     setmapping!(graph, node => newref)
     return newref
 end
 
 function Base.show(io::IO, graph::Graph)
     for (ref, stmt) in graph
-        showstmt(io, ref, stmt)
-    end
-end
-
-function showstmt(io::IO, ref, stmt)
-    if stmt isa Assumption
-        println(io, ref, (isdotted(stmt) ? " .~ " : " ~ "), stmt)
-    elseif stmt isa Observation
-        println(io, ref, (isdotted(stmt) ? " .⩪ " : " ⩪ "), stmt)
-    else
         println(io, ref, " = ", stmt)
     end
 end
 
-
-"""Convert references in VarName indices into values."""
-function dereference(graph, vn::VarName{S}) where {S}
-    indices = map.(r -> try_getvalue(graph, r), DynamicPPL.getindexing(vn))
-    return VarName(S, indices)
-end
-
-"""Follow a reference, leave other values as is."""
-try_getvalue(graph, constant) = constant
-# try_getvalue(graph, ref::UnnamedReference) = getvalue(graph[ref])
-# function try_getvalue(graph, ref::NamedReference)
-#     vn = dereference(graph, ref.vn)
-#     stmt = graph[ref.number]
-#     return foldl((a, ix) -> a[ix...], DynamicPPL.getindexing(vn), init=getvalue(stmt))
-# end
-try_getvalue(graph, ref::Reference) = getvalue(graph[ref])
-
-
-resolve_varname(graph, ref::UnnamedReference) = ref.vn
-function resolve_varname(graph, ref::NamedReference)
-    vn = ref.vn
-    sym = DynamicPPL.getsym(vn)
-    indexing = DynamicPPL.getindexing(vn)
-    return VarName(sym, Tuple(try_getvalue.(Ref(graph), ix) for ix in indexing))
-end
 
 
 function convertcall(graph, node::CallingNode)
@@ -480,8 +471,8 @@ function pushtilde!(graph, callingnode, tilde_constructor)
     dist = convertdist!(graph, dist_expr)
     value = convertvalue(graph, value_expr)
     
-    ref = makereference!(graph, callingnode, vn)
-    graph[ref] = tilde_constructor(dist, value, -Inf)
+    ref = makereference!(graph, callingnode)
+    graph[ref] = tilde_constructor(vn, dist, value, -Inf)
 
     if tilde_constructor <: Assumption{true}
         # dot_tilde mutates whole array -- empty indexing
@@ -516,13 +507,11 @@ function pushnode!(graph, node::CallingNode{typeof(DynamicPPL.matchingvalue)})
     # @7: ⟨getproperty⟩(@6, ⟨:x⟩) = [0.5, 1.1]                                                                                                                                                       
     # @8: ⟨DynamicPPL.matchingvalue⟩(@4, @3, @7) = [0.5, 1.1]
 
-    value_expr = getargument(node, 3)
+    value_expr = getargument(node, 3) # @7 above
     if value_expr isa TapeReference
-        getproperty_node = try_getindex(value_expr)
+        getproperty_node = value_expr[]
         delete!(graph, getmapping(graph, getproperty_node))
-        argname = getvalue(getargument(getproperty_node, 2))
-    else
-        argname = gensym("argument")
+    else # value vas a literal, not a function argument
         @warn "this probably shouldn't have happened..."
     end
 
@@ -537,7 +526,7 @@ function pushnode!(graph, node::CallingNode{typeof(setindex!)})
     argument_exprs = try_getindex.(getarguments(node))
     arguments = getmapping.(Ref(graph), argument_exprs, argument_exprs)
     mutated, value, indexing = arguments[1], arguments[2], arguments[3:end]
-    indexing_values = try_getvalue.(Ref(graph), indexing)
+    indexing_values = tuple([getvalue(graph[ix]) for ix in indexing])
     
     if value isa Reference && graph[value] isa Union{Assumption, Observation}
         setmutation!(graph, (mutated, indexing_values) => value)
@@ -553,14 +542,14 @@ function pushnode!(graph, node::CallingNode{typeof(getindex)})
     argument_exprs = try_getindex.(getarguments(node))
     arguments = getmapping.(Ref(graph), argument_exprs, argument_exprs)
     array, indexing = arguments[1], arguments[2:end]
-    indexing_values = try_getvalue.(Ref(graph), indexing)
+    indexing_values = tuple([getvalue(graph[ix]) for ix in indexing])
     
     if hasmutation(graph, array, indexing_values)
         mutated = getmutation(graph, array, indexing_values)
-        # new_vn = VarName(mutated.vn, (indexing,))
         ref = makereference!(graph, node)
         # @show getvalue(graph[mutated])
-        graph[ref] = Call(identity, (mutated,), getvalue(graph[mutated]))
+        # graph[ref] = Call(identity, (mutated,), getvalue(graph[mutated]))
+        graph[ref] = Call(getindex, (array,), indexing)
     else
         invoke(pushnode!, Tuple{Graph, CallingNode}, graph, node)
     end
@@ -576,11 +565,11 @@ end
 
 function pushnode!(graph, node::ArgumentNode)
     if !isnothing(node.branch_node)
-        # skip branch argument nodes
+        # don't add, but remember branch arguments
         original_ref = getmapping(graph, referenced(node)[1])
         setmapping!(graph, node => original_ref)
     else
-        # function argument nodes are handled like constants
+        # handle function argument nodes like constants
         ref = makereference!(graph, node)
         graph[ref] = Constant(getvalue(node))
     end
@@ -589,55 +578,55 @@ function pushnode!(graph, node::ArgumentNode)
 end
 
 
-function eliminate_leftovers!(graph::Graph)
-    marked = Set{Reference}()
-    candidates = Set{Reference}()
+# function eliminate_leftovers!(graph::Graph)
+#     marked = Set{Reference}()
+#     candidates = Set{Reference}()
 
-    # first pass: mark everything between tildes
-    for (ref, stmt) in graph
-        empty!(candidates)
+#     # first pass: mark everything between tildes
+#     for (ref, stmt) in graph
+#         empty!(candidates)
         
-        if stmt isa Union{Assumption, Observation}
-            # mark backwards from `ref`
-            push!(candidates, ref)
+#         if stmt isa Union{Assumption, Observation}
+#             # mark backwards from `ref`
+#             push!(candidates, ref)
             
-            while !isempty(candidates)
-                candidate = pop!(candidates)
-                candidate ∈ marked && continue
+#             while !isempty(candidates)
+#                 candidate = pop!(candidates)
+#                 candidate ∈ marked && continue
                 
-                push!(marked, candidate)
-                union!(candidates, dependencies(graph[candidate]))
-                union!(candidates, dependencies(candidate))
-            end
-        end
-    end
+#                 push!(marked, candidate)
+#                 union!(candidates, dependencies(graph[candidate]))
+#                 union!(candidates, dependencies(candidate))
+#             end
+#         end
+#     end
 
-    # second pass: mark `setindex!` calls going to already marked refs
-    for (ref, stmt) in graph
-        empty!(candidates)
+#     # second pass: mark `setindex!` calls going to already marked refs
+#     for (ref, stmt) in graph
+#         empty!(candidates)
         
-        if stmt isa Call{typeof(setindex!)}
-            union!(candidates, dependencies(stmt))
+#         if stmt isa Call{typeof(setindex!)}
+#             union!(candidates, dependencies(stmt))
             
-            while !isempty(candidates)
-                candidate = pop!(candidates)
+#             while !isempty(candidates)
+#                 candidate = pop!(candidates)
                 
-                if candidate ∈ marked
-                    push!(marked, ref)
-                    break
-                end
+#                 if candidate ∈ marked
+#                     push!(marked, ref)
+#                     break
+#                 end
                 
-                union!(candidates, dependencies(graph[candidate]))
-                union!(candidates, dependencies(candidate))
-            end
-        end
-    end
+#                 union!(candidates, dependencies(graph[candidate]))
+#                 union!(candidates, dependencies(candidate))
+#             end
+#         end
+#     end
 
-    # third step: delete all unmarked nodes
-    for unmarked in setdiff(keys(graph), marked)
-        delete!(graph, unmarked)
-    end
-end
+#     # third step: delete all unmarked nodes
+#     for unmarked in setdiff(keys(graph), marked)
+#         delete!(graph, unmarked)
+#     end
+# end
 
 function makegraph(slice::Vector{<:AbstractNode})
     graph = foldl(slice, init=Graph()) do graph, node
