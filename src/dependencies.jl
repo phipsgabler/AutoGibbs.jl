@@ -266,15 +266,14 @@ function Base.show(io::IO, stmt::Observation)
     print(io, ") ← ", stmt.value)
 end
 function Base.show(io::IO, stmt::Call)
+    if !isnothing(stmt.definition)
+        vn = stmt.definition[1]
+        print(io, vn, " = ")
+    end
     print(io, stmt.f)
     print(io, "(")
     join(io, stmt.args, ", ")
     print(io, ") → ", stmt.value)
-end
-function Base.show(io::IO, stmt::Call{<:VarName})
-    vn, loc = stmt.definition
-    print(io, vn, " = ")
-    invoke(Base.show, Tuple{IO, Call}, io, stmt)
 end
 Base.show(io::IO, stmt::Constant) = print(io, stmt.value)
 
@@ -293,7 +292,7 @@ getvn(::Constant) = nothing
 """
     dependencies(stmt)
 
-Direct dependencies of a graph statement: all references that occur within it
+Direct dependencies of a graph statement: all references that occur within it.
 """
 function dependencies end
 
@@ -554,9 +553,8 @@ function pushnode!(graph, node::CallingNode{typeof(getindex)})
     if hasmutation(graph, array, indexing_values)
         mutated = getmutation(graph, array, indexing_values)
         ref = makereference!(graph, node)
-        # @show getvalue(graph[mutated])
-        # graph[ref] = Call(identity, (mutated,), getvalue(graph[mutated]))
-        graph[ref] = Call(getindex, (array,), indexing)
+        definition = (graph[mutated].vn, mutated)
+        graph[ref] = Call(definition, getindex, (array, indexing...), getvalue(node))
     else
         invoke(pushnode!, Tuple{Graph, CallingNode}, graph, node)
     end
@@ -585,63 +583,10 @@ function pushnode!(graph, node::ArgumentNode)
 end
 
 
-# function eliminate_leftovers!(graph::Graph)
-#     marked = Set{Reference}()
-#     candidates = Set{Reference}()
-
-#     # first pass: mark everything between tildes
-#     for (ref, stmt) in graph
-#         empty!(candidates)
-        
-#         if stmt isa Union{Assumption, Observation}
-#             # mark backwards from `ref`
-#             push!(candidates, ref)
-            
-#             while !isempty(candidates)
-#                 candidate = pop!(candidates)
-#                 candidate ∈ marked && continue
-                
-#                 push!(marked, candidate)
-#                 union!(candidates, dependencies(graph[candidate]))
-#                 union!(candidates, dependencies(candidate))
-#             end
-#         end
-#     end
-
-#     # second pass: mark `setindex!` calls going to already marked refs
-#     for (ref, stmt) in graph
-#         empty!(candidates)
-        
-#         if stmt isa Call{typeof(setindex!)}
-#             union!(candidates, dependencies(stmt))
-            
-#             while !isempty(candidates)
-#                 candidate = pop!(candidates)
-                
-#                 if candidate ∈ marked
-#                     push!(marked, ref)
-#                     break
-#                 end
-                
-#                 union!(candidates, dependencies(graph[candidate]))
-#                 union!(candidates, dependencies(candidate))
-#             end
-#         end
-#     end
-
-#     # third step: delete all unmarked nodes
-#     for unmarked in setdiff(keys(graph), marked)
-#         delete!(graph, unmarked)
-#     end
-# end
-
 function makegraph(slice::Vector{<:AbstractNode})
-    graph = foldl(slice, init=Graph()) do graph, node
-        # @show node
+    return foldl(slice, init=Graph()) do graph, node
         pushnode!(graph, node)
     end
-    # eliminate_leftovers!(graph)
-    return graph
 end
 
 
