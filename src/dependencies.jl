@@ -256,12 +256,8 @@ function Base.show(io::IO, stmt::Assumption)
     print(io, ") → ", stmt.value)
 end
 function Base.show(io::IO, stmt::Observation)
-    if isnothing(stmt.vn)
-        print(io, stmt.value, (isdotted(stmt) ? " .⩪ " : " ⩪ "))
-    else
-        print(io, stmt.vn, (isdotted(stmt) ? " .⩪ " : " ⩪ "))
-    end
-    print(io, _shortname(stmt.dist.f), "(")
+    print(io, (isnothing(stmt.vn) ? stmt.value : stmt.vn))
+    print(io, (isdotted(stmt) ? " .⩪ " : " ⩪ "), _shortname(stmt.dist.f), "(")
     join(io, stmt.dist.args, ", ")
     print(io, ") ← ", stmt.value)
 end
@@ -357,7 +353,7 @@ Base.iterate(graph::Graph, state) = iterate(graph.statements, state)
 # just intended for debugging
 Base.getindex(graph::Graph, i::Int) = graph[Reference(i)]
 
-# to convert
+# to convert an atom to a runtime value: either the value of the referenced node, or a literal
 tovalue(graph, ref::Reference) = getvalue(graph[ref])
 tovalue(graph, other) = other
 
