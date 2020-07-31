@@ -531,6 +531,12 @@ function pushnode!(graph, node::CallingNode{typeof(setindex!)})
     
     if value isa Reference && graph[value] isa Union{Assumption, Observation}
         setmutation!(graph, (mutated, indexing_values) => value)
+        # here we also replace the `setindex!` call that followed the tilde node
+        # by a `getindex` on the same value, to preserve the information of the dependency of
+        # between the variable, the array, and the index
+        definition = (graph[value].vn, value)
+        ref = makereference!(graph, node)
+        graph[ref] = Call(definition, getindex, (mutated, indexing...), tovalue(graph, value))
     else
         invoke(pushnode!, Tuple{Graph, CallingNode}, graph, node)
     end
