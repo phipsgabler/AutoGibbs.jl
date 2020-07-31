@@ -222,7 +222,7 @@ end
 Assumption{dotted}(vn, dist, value, logp) where {dotted} =
     Assumption{dotted, typeof(vn), typeof(dist), typeof(value)}(vn, dist, value, logp)
 
-struct Observation{dotted, TN<:VarName, TDist<:Statement, TVal} <: Statement
+struct Observation{dotted, TN<:Union{Nothing, VarName}, TDist<:Statement, TVal} <: Statement
     vn::TN
     dist::TDist
     value::TVal
@@ -256,7 +256,12 @@ function Base.show(io::IO, stmt::Assumption)
     print(io, ") → ", stmt.value)
 end
 function Base.show(io::IO, stmt::Observation)
-    print(io, stmt.vn, (isdotted(stmt) ? " .⩪ " : " ⩪ "), _shortname(stmt.dist.f), "(")
+    if isnothing(stmt.vn)
+        print(io, stmt.value, (isdotted(stmt) ? " .⩪ " : " ⩪ "))
+    else
+        print(io, stmt.vn, (isdotted(stmt) ? " .⩪ " : " ⩪ "))
+    end
+    print(io, _shortname(stmt.dist.f), "(")
     join(io, stmt.dist.args, ", ")
     print(io, ") ← ", stmt.value)
 end
@@ -306,9 +311,6 @@ function dependencies(stmt::Call)
     end
     return deps
 end
-# dependencies(ref::NamedReference) =
-    # Reference[ix for index in DynamicPPL.getindexing(ref.vn) for ix in index if ix isa Reference]
-# dependencies(ref::UnnamedReference) = Reference[ref]
 
 
 """
@@ -320,7 +322,7 @@ function recursive_dependencies end
 
 recursive_dependencies(stmt::Constant) = dependencies(stmt)
 function recursive_dependencies(stmt::Union{Assumption, Observation})
-    
+    return Reference[]
 end
 
 
@@ -354,7 +356,11 @@ Base.iterate(graph::Graph) = iterate(graph.statements)
 Base.iterate(graph::Graph, state) = iterate(graph.statements, state)
 
 # just intended for debugging
-Base.getindex(graph::Graph, i::Int) = graph[Ref(i)]
+Base.getindex(graph::Graph, i::Int) = graph[Reference(i)]
+
+# to convert
+tovalue(graph, ref::Reference) = getvalue(graph[ref])
+tovalue(graph, other) = other
 
 function Base.mapreduce(f, op, graph::Graph; init)
     for kv in graph
@@ -461,7 +467,7 @@ function convertvn!(graph, vn_expr::TapeReference)
     deletemapping!(graph, indices_node)
     deletemapping!.(Ref(graph), index_element_nodes)
 
-    return VarName(vn_name, index_refs)
+    return VarName(vn_name, map.(ix -> tovalue(graph, ix), index_refs))
 end
 
 
@@ -526,7 +532,7 @@ function pushnode!(graph, node::CallingNode{typeof(setindex!)})
     argument_exprs = try_getindex.(getarguments(node))
     arguments = getmapping.(Ref(graph), argument_exprs, argument_exprs)
     mutated, value, indexing = arguments[1], arguments[2], arguments[3:end]
-    indexing_values = tuple([getvalue(graph[ix]) for ix in indexing])
+    indexing_values = tovalue.(Ref(graph), indexing)
     
     if value isa Reference && graph[value] isa Union{Assumption, Observation}
         setmutation!(graph, (mutated, indexing_values) => value)
@@ -542,7 +548,8 @@ function pushnode!(graph, node::CallingNode{typeof(getindex)})
     argument_exprs = try_getindex.(getarguments(node))
     arguments = getmapping.(Ref(graph), argument_exprs, argument_exprs)
     array, indexing = arguments[1], arguments[2:end]
-    indexing_values = tuple([getvalue(graph[ix]) for ix in indexing])
+    indexing_values = tovalue.(Ref(graph), indexing)
+
     
     if hasmutation(graph, array, indexing_values)
         mutated = getmutation(graph, array, indexing_values)
