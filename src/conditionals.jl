@@ -84,33 +84,29 @@ function conditional_dists(graph, varname)
     # There can be multiple tildes for one `varname`, e.g., `x[1], x[2]` both subsumed by `x`.
     dists = Dict{VarName, Distribution}()
     blankets = DefaultDict{VarName, Float64}(0.0)
-    rvs = Dict{VarName, Reference}()  # remember the tildes for random variables
+    rvs = Dict{VarName, Reference}() 
     
     for (ref, stmt) in graph
         if stmt isa Union{Assumption, Observation} && !isnothing(stmt.vn)
+            dist, value = getvalue(stmt.dist), tovalue(graph, getvalue(stmt))
             vn = stmt.vn
+
+            # remember the tilde statement for all random variables
             rvs[vn] = ref
             
             # record distribution of every matching tilde
             if DynamicPPL.subsumes(varname, vn)
                 dist = getvalue(stmt.dist)
                 dists[vn] = dist
-
-                # if dist isa Product
-                #     components = dist.v
-                #      for i in eachindex(components)
-                #          dists[VarName(ref_vn, ((i,),))] = components[i]
-                #      end
-                # end
             end
 
             # add likelihood to all parents of which this RV is in the blanket
-            dist, value = getvalue(stmt.dist), tovalue(graph, getvalue(stmt))
-            
             for p in parent_variables(graph, stmt)
-                @show stmt => p
                 if any(DynamicPPL.subsumes(r, p.vn) for r in keys(dists))
+                    # @show stmt => p
                     ℓ = logpdf(dist, value)
+                    # @show dist, value
+                    # @show p.vn => ℓ
                     blankets[p.vn] += ℓ
                 end
             end
@@ -118,8 +114,6 @@ function conditional_dists(graph, varname)
     end
 
     # @show blankets
-    # @show keys(dists)
-    @show rvs
     return Dict(vn => conditioned(d, blankets[vn]) for (vn, d) in dists)
 end
 

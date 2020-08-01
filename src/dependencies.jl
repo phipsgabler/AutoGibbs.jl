@@ -311,7 +311,7 @@ end
 """
     parent_variables(graph, stmt)
 
-Return all `Assumption`s that the tilde `stmt` depends on.
+Return all `Assumption`s that the tilde `stmt` depends on directly.
 """
 function parent_variables(graph, stmt)
     result = Assumption[]
