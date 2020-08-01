@@ -337,13 +337,19 @@ struct Graph
     """Association which nodes in the trace are associated with which references in the graph"""
     reference_mapping::Dict{AbstractNode, Reference}
 
-    """Remembers which references describe arrays that have been discovered to have been mutated"""
-    mutated_rvs::Dict{Tuple{Reference, Tuple}, Reference}
+    """
+    Remembers in which references random variables are actually stored; this is either the location
+    of the tilde statement (`beta ~ Normal()`, `z ~ filldist(...)`), or the array position it is
+    assigned to (`z[i] ~ Normal()`).
+
+    The container is first ordered by reference of storage, then by index for `subsumes` testing.
+    """
+    rv_locations::Dict{Reference, Vector{Pair{Tuple, Reference}}}
 end
 
 Graph() = Graph(SortedDict{Reference, Statement}(),
                 Dict{AbstractNode, Reference}(),
-                Dict{Reference, Reference}())
+                Dict{Reference, Vector{Pair{Tuple, Reference}}}())
 
 Base.IteratorSize(::Type{Graph}) = Base.HasLength()
 Base.length(graph::Graph) = length(graph.statements)
@@ -407,9 +413,29 @@ function deletemapping!(graph::Graph, node)
     return graph
 end
 
-getmutation(graph::Graph, ref::Reference, indices) = get(graph.mutated_rvs, (ref, indices), ref)
-setmutation!(graph, ((ref, indices), vn)) = graph.mutated_rvs[(ref, indices)] = vn
-hasmutation(graph, ref, indices) = haskey(graph.mutated_rvs, (ref, indices))
+
+"""Look up the matching location of an RV in graph.rv_locations[ref] for given index tuple."""
+function _find_indexing(indexings, indexing)
+    for (ix, r) in indexings
+        if DynamicPPL.subsumes(ix, indexing)
+            return r
+        end
+    end
+    return nothing
+end
+
+function getrv(graph::Graph, ref::Reference, indexing)
+    _find_indexing(graph.rv_locations[ref], indexing)
+end
+
+function setrv!(graph, ((ref, indexing), vn))
+    push!(get!(graph.rv_locations, ref, valtype(graph.rv_locations)()), indexing => vn)
+end
+
+function hasrv(graph, ref, indexing)
+    indexings = get(graph.rv_locations, ref, nothing)
+    return !isnothing(indexings) && !isnothing(_find_indexing(indexings, indexing))
+end
 
 
 function makereference!(graph, node)
@@ -480,13 +506,20 @@ function pushtilde!(graph, callingnode, tilde_constructor)
     vn = convertvn!(graph, vn_expr)
     dist = convertdist!(graph, dist_expr)
     value = convertvalue(graph, value_expr)
-    
+
+
     ref = makereference!(graph, callingnode)
+
+    # this is the case where an unindexed variable is sampled -- the value is equivalent to
+    # the current reference; otherwise, a `setindex!` should follow in the next line.
+    indexing_values = DynamicPPL.getindexing(vn)
+    indexing_values == () && setrv!(graph, (ref, indexing_values) => ref)
+    
     graph[ref] = tilde_constructor(vn, dist, value, -Inf)
 
     if tilde_constructor <: Assumption{true}
         # dot_tilde mutates whole array -- empty indexing
-        setmutation!(graph, (value, ()) => ref)
+        setrv!(graph, (value, ()) => ref)
     end
 
     if isdotted(tilde_constructor)
@@ -536,11 +569,14 @@ function pushnode!(graph, node::CallingNode{typeof(setindex!)})
     argument_exprs = try_getindex.(getarguments(node))
     arguments = getmapping.(Ref(graph), argument_exprs, argument_exprs)
     mutated, value, indexing = arguments[1], arguments[2], arguments[3:end]
-    indexing_values = tovalue.(Ref(graph), indexing)
+    indexing_values = (tovalue.(Ref(graph), indexing),)
     
     if value isa Reference && graph[value] isa Union{Assumption, Observation}
-        setmutation!(graph, (mutated, indexing_values) => value)
-        # here we also replace the `setindex!` call that followed the tilde node
+        # this is the case where in the previous line, an indexed RV was sampled; we need
+        # to associate the value with the array position it is assigned to here.
+        setrv!(graph, (mutated, indexing_values) => value)
+        
+        # we also replace the `setindex!` call that followed the tilde node
         # by a `getindex` on the same value, to preserve the information of the dependency of
         # between the variable, the array, and the index
         definition = (graph[value].vn, value)
@@ -558,12 +594,12 @@ function pushnode!(graph, node::CallingNode{typeof(getindex)})
     argument_exprs = try_getindex.(getarguments(node))
     arguments = getmapping.(Ref(graph), argument_exprs, argument_exprs)
     array, indexing = arguments[1], arguments[2:end]
-    indexing_values = tovalue.(Ref(graph), indexing)
+    indexing_values = (tovalue.(Ref(graph), indexing),)
     
-    if hasmutation(graph, array, indexing_values)
-        mutated = getmutation(graph, array, indexing_values)
+    if hasrv(graph, array, indexing_values)
+        rv = getrv(graph, array, indexing_values)
         ref = makereference!(graph, node)
-        definition = (graph[mutated].vn, mutated)
+        definition = (graph[rv].vn, rv)
         graph[ref] = Call(definition, getindex, (array, indexing...), getvalue(node))
     else
         invoke(pushnode!, Tuple{Graph, CallingNode}, graph, node)
