@@ -7,6 +7,27 @@ export conditional_dists
 
 
 """
+    _insert(a::Tuple, ::Val{index}, item)
+
+Insert `item` into `a` at `index`: `_insert((1, 2, 3), Val(2), :x) ~> (1, :x, 2, 3)`.
+"""
+@generated function _insert(a::Tuple, ::Val{index}, item) where {index}
+    L = length(a.parameters)
+    if 1 ≤ index ≤ L + 1
+        range_before = 1:(index-1)
+        range_after = index:L
+        return Expr(:tuple,
+                    (:(a[$i]) for i in range_before)...,
+                    :item,
+                    (:(a[$i]) for i in range_after)...)
+    else
+        throw(ArgumentError("Can't insert into length $L tuple at index $index"))
+    end
+end
+
+
+
+"""
 Fix all except the `N`th argument of `D`, and the observed value; if 
 
     ℓ = LogLikelihood{N}(D, value, args...)
@@ -38,26 +59,6 @@ function (ℓ::LogLikelihood{N, D, T, Args})(θ) where {N, D, T, Args}
 end
 
 
-"""
-    _insert(a::Tuple, ::Val{index}, item)
-
-Insert `item` into `a` at `index`: `_insert((1, 2, 3), Val(2), :x) ~> (1, :x, 2, 3)`.
-"""
-@generated function _insert(a::Tuple, ::Val{index}, item) where {index}
-    L = length(a.parameters)
-    if 1 ≤ index ≤ L + 1
-        range_before = 1:(index-1)
-        range_after = index:L
-        return Expr(:tuple,
-                    (:(a[$i]) for i in range_before)...,
-                    :item,
-                    (:(a[$i]) for i in range_after)...)
-    else
-        throw(ArgumentError("Can't insert into length $L tuple at index $index"))
-    end
-end
-
-
 struct Conditional{D<:Distribution, B}
     var_dist::D
     blanket_dists::B
@@ -83,13 +84,17 @@ function conditional_dists(graph, varname)
     # There can be multiple tildes for one `varname`, e.g., `x[1], x[2]` both subsumed by `x`.
     dists = Dict{VarName, Distribution}()
     blankets = DefaultDict{VarName, Float64}(0.0)
+    rvs = Dict{VarName, Reference}()  # remember the tildes for random variables
     
     for (ref, stmt) in graph
-        # record distribution of every matching node
-        if stmt isa Union{Assumption, Observation}
-            if DynamicPPL.subsumes(varname, ref_vn)
+        if stmt isa Union{Assumption, Observation} && !isnothing(stmt.vn)
+            vn = stmt.vn
+            rvs[vn] = ref
+            
+            # record distribution of every matching tilde
+            if DynamicPPL.subsumes(varname, vn)
                 dist = getvalue(stmt.dist)
-                dists[ref_vn] = dist
+                dists[vn] = dist
 
                 # if dist isa Product
                 #     components = dist.v
@@ -99,23 +104,22 @@ function conditional_dists(graph, varname)
                 # end
             end
 
-            # update the blanket logp for all matching parents
-            for p in dependencies(stmt.dist)
-                # !isnothing(p.vn) && @show dereference(graph, p.vn)
-                if !isnothing(p.vn) && any(DynamicPPL.subsumes(r, dereference(graph, p.vn))
-                                           for r in keys(dists))
-                    # @show p
-                    child_dist, child_value = getvalue(stmt.dist), try_getvalue(graph, stmt.value)
-                    ℓ = logpdf(child_dist, child_value)
-                    # @show ℓ
-                    blankets[dereference(graph, p.vn)] += ℓ
+            # add likelihood to all parents of which this RV is in the blanket
+            dist, value = getvalue(stmt.dist), tovalue(graph, getvalue(stmt))
+            
+            for p in parent_variables(graph, stmt)
+                @show stmt => p
+                if any(DynamicPPL.subsumes(r, p.vn) for r in keys(dists))
+                    ℓ = logpdf(dist, value)
+                    blankets[p.vn] += ℓ
                 end
             end
         end
     end
 
     # @show blankets
-    @show keys(dists)
+    # @show keys(dists)
+    @show rvs
     return Dict(vn => conditioned(d, blankets[vn]) for (vn, d) in dists)
 end
 

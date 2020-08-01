@@ -309,15 +309,24 @@ end
 
 
 """
-    recursive_dependencies(tilde)
+    parent_variables(graph, stmt)
 
-Chained dependencies of a sampling statement `tilde`, up to the previous sampling.
+Return all `Assumption`s that the tilde `stmt` depends on.
 """
-function recursive_dependencies end
+function parent_variables(graph, stmt)
+    result = Assumption[]
+    
+    for dep in dependencies(stmt)
+        if graph[dep] isa Assumption
+            push!(result, graph[dep])
+        elseif graph[dep] isa Call
+            append!(result, parent_variables(graph, graph[dep]))
+        elseif graph[dep] isa Observation
+            @warn "The parent $(graph[dep]) is an observation, something weird has happened..."
+        end
+    end
 
-recursive_dependencies(stmt::Constant) = dependencies(stmt)
-function recursive_dependencies(stmt::Union{Assumption, Observation})
-    return Reference[]
+    return result
 end
 
 
