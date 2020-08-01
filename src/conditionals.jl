@@ -29,27 +29,31 @@ end
 function Base.show(io::IO, ℓ::LogLikelihood{N, D}) where {N, D}
     L = length(ℓ.args) + 1
     print(io, "θ -> logpdf(", D, "(")
-    join(io, _splice(N, "θ", ℓ.args), ", ")
+    join(io, _insert(ℓ.args, Val(N), "θ"), ", ")
     print(io, "), ", ℓ.value, ")")
 end
 
 function (ℓ::LogLikelihood{N, D, T, Args})(θ) where {N, D, T, Args}
-    return logpdf(D(_splice(N, θ, ℓ.args)...), ℓ.value)
+    return logpdf(D(_insert(ℓ.args, Val(N), θ)...), ℓ.value)
 end
 
 
 """
-    _splice(position, value, args)
+    _insert(a::Tuple, ::Val{index}, item)
 
-Insert `value` into `args` at `position`: `_splice(2, :x, (1, 2, 3)) ~> (1, :x, 2, 3)`.
+Insert `item` into `a` at `index`: `_insert((1, 2, 3), Val(2), :x) ~> (1, :x, 2, 3)`.
 """
-function _splice(position, value, args::Tuple)
-    if position == 1
-        return (value, args...)
-    elseif 1 < position ≤ length(args) + 1
-        return (first(args), _splice(position - 1, value, Base.tail(args))...)
+@generated function _insert(a::Tuple, ::Val{index}, item) where {index}
+    L = length(a.parameters)
+    if 1 ≤ index ≤ L + 1
+        range_before = 1:(index-1)
+        range_after = index:L
+        return Expr(:tuple,
+                    (:(a[$i]) for i in range_before)...,
+                    :item,
+                    (:(a[$i]) for i in range_after)...)
     else
-        throw(ArgumentError("Can't insert value into $args at position $position"))
+        throw(ArgumentError("Can't insert into length $L tuple at index $index"))
     end
 end
 
@@ -67,6 +71,8 @@ end
 
 components(vn, indices) = [VarName(getsym(vn), ix) for ix in indices]
 
+
+
 """
     conditional_dists(graph, varname)
 
@@ -80,9 +86,7 @@ function conditional_dists(graph, varname)
     
     for (ref, stmt) in graph
         # record distribution of every matching node
-        if !isnothing(ref.vn)
-            ref_vn = dereference(graph, ref.vn)
-            
+        if stmt isa Union{Assumption, Observation}
             if DynamicPPL.subsumes(varname, ref_vn)
                 dist = getvalue(stmt.dist)
                 dists[ref_vn] = dist

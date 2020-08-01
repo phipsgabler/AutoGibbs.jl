@@ -550,7 +550,6 @@ function pushnode!(graph, node::CallingNode{typeof(getindex)})
     arguments = getmapping.(Ref(graph), argument_exprs, argument_exprs)
     array, indexing = arguments[1], arguments[2:end]
     indexing_values = tovalue.(Ref(graph), indexing)
-
     
     if hasmutation(graph, array, indexing_values)
         mutated = getmutation(graph, array, indexing_values)
