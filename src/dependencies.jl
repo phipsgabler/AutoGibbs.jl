@@ -246,6 +246,9 @@ struct Constant{TVal} <: Statement
 end
 
 
+const Tilde{dotted} = Union{Assumption{dotted}, Observation{dotted}}
+
+
 
 _shortname(d::Type{<:Distribution}) = string(nameof(d))
 _shortname(other) = string(other)
@@ -277,10 +280,10 @@ IRTracker.getvalue(stmt::Statement) = stmt.value
 
 isdotted(::Type{<:Assumption{dotted}}) where {dotted} = dotted
 isdotted(::Type{<:Observation{dotted}}) where {dotted} = dotted
-isdotted(tilde::Union{Assumption, Observation}) = isdotted(typeof(tilde))
+isdotted(tilde::Tilde) = isdotted(typeof(tilde))
 
 
-getvn(stmt::Union{Assumption, Observation}) = stmt.vn
+getvn(stmt::Tilde) = stmt.vn
 getvn(stmt::Call) = isnothing(stmt.definition) ? nothing : stmt.definition[1]
 getvn(::Constant) = nothing
 
@@ -293,7 +296,7 @@ Direct dependencies of a graph statement: all references that occur within it.
 function dependencies end
 
 dependencies(::Constant) = Reference[]
-function dependencies(stmt::Union{Assumption, Observation})
+function dependencies(stmt::Tilde)
     deps = dependencies(stmt.dist)
     stmt.value isa Reference && push!(deps, stmt.value)
     return deps
@@ -314,15 +317,15 @@ end
 Return all `Assumption`s that the tilde `stmt` depends on directly.
 """
 function parent_variables(graph, stmt)
-    result = Assumption[]
+    result = Set{Assumption}()
     
     for dep in dependencies(stmt)
         if graph[dep] isa Assumption
             push!(result, graph[dep])
         elseif graph[dep] isa Call
-            append!(result, parent_variables(graph, graph[dep]))
+            union!(result, parent_variables(graph, graph[dep]))
         elseif graph[dep] isa Observation
-            @warn "The parent $(graph[dep]) is an observation, something weird has happened..."
+            @warn "The parent of $stmt is an observation ($(graph[dep])), something weird has happened..."
         end
     end
 
@@ -355,8 +358,10 @@ Base.IteratorSize(::Type{Graph}) = Base.HasLength()
 Base.length(graph::Graph) = length(graph.statements)
 Base.IteratorEltype(::Type{Graph}) = Base.HasEltype()
 Base.eltype(graph::Graph) = eltype(graph.statements)
-Base.getindex(graph::Graph, ref::Reference) = graph.statements[ref]
+Base.getindex(graph::Graph, ref) = graph.statements[ref]
 Base.setindex!(graph::Graph, stmt, ref) = graph.statements[ref] = stmt
+Base.firstindex(graph::Graph) = firstindex(graph.statements)
+Base.lastindex(graph::Graph) = lastindex(graph.statements)
 Base.get(graph::Graph, ref, default) = get(graph.statements, ref, default)
 Base.haskey(graph::Graph, ref) = haskey(graph.statements, ref)
 Base.delete!(graph::Graph, ref) = delete!(graph.statements, ref)
@@ -429,7 +434,8 @@ function getrv(graph::Graph, ref::Reference, indexing)
 end
 
 function setrv!(graph, ((ref, indexing), vn))
-    push!(get!(graph.rv_locations, ref, valtype(graph.rv_locations)()), indexing => vn)
+    push!(get!(graph.rv_locations, ref, valtype(graph.rv_locations)()),
+          indexing => vn)
 end
 
 function hasrv(graph, ref, indexing)
@@ -507,23 +513,19 @@ function pushtilde!(graph, callingnode, tilde_constructor)
     dist = convertdist!(graph, dist_expr)
     value = convertvalue(graph, value_expr)
 
-
     ref = makereference!(graph, callingnode)
-
-    # this is the case where an unindexed variable is sampled -- the value is equivalent to
-    # the current reference; otherwise, a `setindex!` should follow in the next line.
-    indexing_values = DynamicPPL.getindexing(vn)
-    indexing_values == () && setrv!(graph, (ref, indexing_values) => ref)
-    
     graph[ref] = tilde_constructor(vn, dist, value, -Inf)
 
-    if tilde_constructor <: Assumption{true}
-        # dot_tilde mutates whole array -- empty indexing
-        setrv!(graph, (value, ()) => ref)
-    end
-
-    if isdotted(tilde_constructor)
-        @warn "Broadcasted tildes ($(graph[ref])) are not fully supported!"
+    if !isnothing(vn)
+        indexing_values = tovalue.(Ref(graph), DynamicPPL.getindexing(vn))
+        if isdotted(tilde_constructor)
+            @warn "Broadcasted tildes ($(graph[ref])) are not fully supported!"
+            setrv!(graph, (value, indexing_values) => ref)
+        elseif indexing_values == ()
+            # this is the case where an unindexed variable is sampled -- the value is equivalent to
+            # the current reference; otherwise, a `setindex!` should follow in the next line.
+            setrv!(graph, (ref, indexing_values) => ref)
+        end
     end
     
     return graph
@@ -571,7 +573,7 @@ function pushnode!(graph, node::CallingNode{typeof(setindex!)})
     mutated, value, indexing = arguments[1], arguments[2], arguments[3:end]
     indexing_values = (tovalue.(Ref(graph), indexing),)
     
-    if value isa Reference && graph[value] isa Union{Assumption, Observation}
+    if value isa Reference && graph[value] isa Tilde
         # this is the case where in the previous line, an indexed RV was sampled; we need
         # to associate the value with the array position it is assigned to here.
         setrv!(graph, (mutated, indexing_values) => value)
@@ -599,7 +601,7 @@ function pushnode!(graph, node::CallingNode{typeof(getindex)})
     if hasrv(graph, array, indexing_values)
         rv = getrv(graph, array, indexing_values)
         ref = makereference!(graph, node)
-        definition = (graph[rv].vn, rv)
+        definition = (VarName(graph[rv].vn, indexing_values), rv)
         graph[ref] = Call(definition, getindex, (array, indexing...), getvalue(node))
     else
         invoke(pushnode!, Tuple{Graph, CallingNode}, graph, node)

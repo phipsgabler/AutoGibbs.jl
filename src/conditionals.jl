@@ -84,16 +84,11 @@ function conditional_dists(graph, varname)
     # There can be multiple tildes for one `varname`, e.g., `x[1], x[2]` both subsumed by `x`.
     dists = Dict{VarName, Distribution}()
     blankets = DefaultDict{VarName, Float64}(0.0)
-    rvs = Dict{VarName, Reference}() 
     
     for (ref, stmt) in graph
         if stmt isa Union{Assumption, Observation} && !isnothing(stmt.vn)
-            dist, value = getvalue(stmt.dist), tovalue(graph, getvalue(stmt))
-            vn = stmt.vn
+            vn, dist, value = stmt.vn, getvalue(stmt.dist), tovalue(graph, getvalue(stmt))
 
-            # remember the tilde statement for all random variables
-            rvs[vn] = ref
-            
             # record distribution of every matching tilde
             if DynamicPPL.subsumes(varname, vn)
                 dist = getvalue(stmt.dist)

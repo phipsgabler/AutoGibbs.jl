@@ -1,7 +1,18 @@
 
 
 function varnames(graph)
-    return Set(Iterators.filter(!isnothing, AutoGibbs.getvn(stmt) for stmt in values(graph)))
+    result = Set{VarName}()
+    
+    for stmt in values(graph)
+        if stmt isa AutoGibbs.Tilde
+            vn = AutoGibbs.getvn(stmt)
+            if !isnothing(vn)
+                push!(result, vn)
+            end
+        end
+    end
+
+    return result
 end
 
 
