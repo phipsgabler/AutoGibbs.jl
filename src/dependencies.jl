@@ -291,46 +291,105 @@ getvn(::Constant) = nothing
 """
     dependencies(stmt)
 
-Direct dependencies of a graph statement: all references that occur within it.
+Direct dependencies of a graph statement: all references that occur within it.  For a call that
+results in a random variable (like `z[3] = getindex(⟨32⟩, ⟨72⟩) → 2`), the dependency on then
+tilde statement of that variable is included as well.
 """
-function dependencies end
+# function dependencies end
 
-dependencies(::Constant) = Reference[]
-function dependencies(stmt::Tilde)
-    deps = dependencies(stmt.dist)
-    stmt.value isa Reference && push!(deps, stmt.value)
-    return deps
-end
-function dependencies(stmt::Call)
-    deps = Reference[arg for arg in stmt.args if arg isa Reference]
-    if !isnothing(stmt.definition)
-        vn, location = stmt.definition
-        push!(deps, location)
-    end
-    return deps
-end
+# dependencies(::Constant) = Reference[]
+# function dependencies(stmt::Tilde)
+#     deps = dependencies(stmt.dist)
+#     stmt.value isa Reference && push!(deps, stmt.value)
+#     return deps
+# end
+# function dependencies(stmt::Call{<:Any, getindex})
+#     deps = Reference[]
+#     if !isnothing(stmt.definition)
+#         vn, location = stmt.definition
+#         push!(deps, location)
+#     end
+#     return deps
+# end
 
+
+# """
+#     parent_variables(graph, stmt)
+
+# Return all `Assumption`s (potentially with indexing) that the tilde `stmt` depends on directly.
+# """
+# function parent_variables(graph, stmt)
+#     result = Set{Tuple{Assumption, Tuple}}()
+    
+#     for dep in dependencies(stmt)
+#         ref = graph[dep]
+#         if ref isa Assumption
+#             push!(result, (ref, ()))
+#         elseif ref isa Call
+#             if ref.f isa typeof(getindex) && !isnothing(ref.definition)
+#                 vn, location = ref.definition
+#                 push!(result, (graph[location], DynamicPPL.getindexing(vn)))
+#             else
+#                 union!(result, parent_variables(graph, ref))
+#             end
+#         elseif graph[dep] isa Observation
+#             @warn "The parent of $stmt is an observation ($(ref)), something weird has happened..."
+#         end
+#     end
+
+#     return result
+# end
 
 """
     parent_variables(graph, stmt)
 
-Return all `Assumption`s that the tilde `stmt` depends on directly.
+Return all `Assumption`s (potentially with indexing) that the tilde `stmt` depends on directly.
 """
-function parent_variables(graph, stmt)
-    result = Set{Assumption}()
-    
-    for dep in dependencies(stmt)
-        if graph[dep] isa Assumption
-            push!(result, graph[dep])
-        elseif graph[dep] isa Call
-            union!(result, parent_variables(graph, graph[dep]))
-        elseif graph[dep] isa Observation
-            @warn "The parent of $stmt is an observation ($(graph[dep])), something weird has happened..."
-        end
-    end
-
+function parent_variables(graph, stmt::Tilde)
+    result = Set{Tuple{Assumption, Union{Tuple, Nothing}}}()
+    parent_variables!(result, graph, stmt.dist)
+    stmt.value isa Reference && parent_variables!(result, graph, stmt.value)
     return result
 end
+
+parent_variables!(result, graph, stmt) = result
+parent_variables!(result, graph, ref::Reference) = parent_variables!(result, graph, graph[ref])
+function parent_variables!(result, graph, stmt::Assumption)
+    return push!(result, (stmt, nothing))
+end
+function parent_variables!(result, graph, stmt::Observation)
+    @warn "The parent statement is an observation ($(stmt)), something weird has happened..."
+    return result
+end
+function parent_variables!(result, graph, stmt::Call{<:Nothing})
+    for arg in stmt.args
+        parent_variables!(result, graph, arg)
+    end
+    return result
+end
+function parent_variables!(result, graph, stmt::Call{<:Tuple})
+    for arg in stmt.args
+        parent_variables!(result, graph, arg)
+    end
+    vn, location = stmt.definition
+    push!(result, (graph[location], DynamicPPL.getindexing(vn)))
+    return result
+end
+function parent_variables!(result, graph, stmt::Call{<:Nothing, typeof(getindex)})
+    for arg in stmt.args
+        parent_variables!(result, graph, arg)
+    end
+    return result
+end
+function parent_variables!(result, graph, stmt::Call{<:Tuple, typeof(getindex)})
+    for arg in Base.tail(stmt.args)
+        parent_variables!(result, graph, arg)
+    end
+    vn, location = stmt.definition
+    push!(result, (graph[location], DynamicPPL.getindexing(vn)))
+    return result
+end
+
 
 
 struct Graph

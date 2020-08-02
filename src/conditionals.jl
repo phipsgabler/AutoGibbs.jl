@@ -96,19 +96,23 @@ function conditional_dists(graph, varname)
             end
 
             # add likelihood to all parents of which this RV is in the blanket
-            for p in parent_variables(graph, stmt)
-                if any(DynamicPPL.subsumes(r, p.vn) for r in keys(dists))
-                    # @show stmt => p
+            for (p, ix) in parent_variables(graph, stmt)                
+                actual_vn = isnothing(ix) ? p.vn : DynamicPPL.VarName(p.vn, ix)
+                
+                if any(DynamicPPL.subsumes(r, actual_vn) for r in keys(dists))
+                    # @show stmt => (p, ix)
                     ℓ = logpdf(dist, value)
                     # @show dist, value
+                    # @show vn
                     # @show p.vn => ℓ
-                    blankets[p.vn] += ℓ
+                    blankets[actual_vn] += ℓ
                 end
             end
         end
     end
 
     # @show blankets
+    # @show dists
     return Dict(vn => conditioned(d, blankets[vn]) for (vn, d) in dists)
 end
 
