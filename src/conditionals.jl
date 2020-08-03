@@ -111,9 +111,20 @@ function conditional_dists(graph, varname)
         end
     end
 
-    # @show blankets
-    # @show dists
-    return Dict(vn => conditioned(d, blankets[vn]) for (vn, d) in dists)
+    @show blankets
+    @show dists
+    result = Dict{VarName, Distribution}()
+
+    for (vn, d) in dists
+        for (b, ℓ) in blankets
+            actual_index = DynamicPPL.getindexing(b)
+            if DynamicPPL.subsumes(vn, b)
+                push!(result, vn => conditioned(d, ℓ, actual_index...))
+            end
+        end
+    end
+    
+    return result
 end
 
 
@@ -193,6 +204,11 @@ end
 
 # `Product`s can be treated as an array of iid variables
 conditioned(d0::Product, blanket_logp) = Product(conditioned.(d0.v, blanket_logp))
+function conditioned(d0::Product, blanket_logp, ix)
+    # apply blanket accumulation to a subset of the product distribution
+    return Product([(ix == i) ? conditioned(d, blanket_logp) : d
+                    for (i, d) in enumerate(d0.v)])
+end
 
 conditioned(d0::Distribution, blanket_logps) =
     throw(ArgumentError("Cannot condition a non-discrete or non-univariate distribution $d0."))

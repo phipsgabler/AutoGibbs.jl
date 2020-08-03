@@ -145,3 +145,11 @@ model_changepoint = changepoint([1.1, 0.9, 0.2])
 graph_changepoint = trackdependencies(model_changepoint)
 @testdependencies(model_changepoint, λ1, λ2, τ, y[1], y[2], y[3])
 @test_nothrow sample(model_changepoint, Gibbs(AutoConditional(:τ), MH(:λ1, :λ2)), 2)
+
+
+@model function reverse_deps(x)
+    m = Vector{Float64}(2)
+    m[1] ~ Normal()
+    m[2] ~ Normal()
+    x ~ MvNormal(m)
+end
