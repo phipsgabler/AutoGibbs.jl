@@ -83,43 +83,46 @@ by `varname`.
 function conditional_dists(graph, varname)
     # There can be multiple tildes for one `varname`, e.g., `x[1], x[2]` both subsumed by `x`.
     dists = Dict{VarName, Distribution}()
-    blankets = DefaultDict{VarName, Float64}(0.0)
+    blankets = DefaultDict{Tuple{VarName, Union{Nothing, Tuple}}, Float64}(0.0)
     
     for (ref, stmt) in graph
         if stmt isa Union{Assumption, Observation} && !isnothing(stmt.vn)
             vn, dist, value = stmt.vn, getvalue(stmt.dist), tovalue(graph, getvalue(stmt))
 
-            # record distribution of every matching tilde
-            if DynamicPPL.subsumes(varname, vn)
-                dist = getvalue(stmt.dist)
-                dists[vn] = dist
-            end
-
             # add likelihood to all parents of which this RV is in the blanket
-            for (p, ix) in parent_variables(graph, stmt)                
-                actual_vn = isnothing(ix) ? p.vn : DynamicPPL.VarName(p.vn, ix)
-                
-                if any(DynamicPPL.subsumes(r, actual_vn) for r in keys(dists))
+            for (p, ix) in parent_variables(graph, stmt)
+                if any(DynamicPPL.subsumes(r, p.vn) for r in keys(dists))
                     # @show stmt => (p, ix)
                     ℓ = logpdf(dist, value)
                     # @show dist, value
                     # @show vn
                     # @show p.vn => ℓ
-                    blankets[actual_vn] += ℓ
+                    
+                    # x, nothing ~> x; x, (1,) ~> x[1]
+                    blankets[(p.vn, ix)] += ℓ
                 end
+            end
+
+            # record distribution of this tilde if it matches the searched vn
+            if DynamicPPL.subsumes(varname, vn)
+                dists[vn] = dist
             end
         end
     end
 
-    @show blankets
-    @show dists
     result = Dict{VarName, Distribution}()
 
     for (vn, d) in dists
-        for (b, ℓ) in blankets
-            actual_index = DynamicPPL.getindexing(b)
+        result[vn] = d
+
+        for ((b, ix), ℓ) in blankets
             if DynamicPPL.subsumes(vn, b)
-                push!(result, vn => conditioned(d, ℓ, actual_index...))
+                # @show vn => actual_index
+                if !isnothing(ix)
+                    push!(result, vn => conditioned(d, ℓ, ix...))
+                else
+                    push!(result, vn => conditioned(d, ℓ))
+                end
             end
         end
     end
@@ -206,8 +209,11 @@ end
 conditioned(d0::Product, blanket_logp) = Product(conditioned.(d0.v, blanket_logp))
 function conditioned(d0::Product, blanket_logp, ix)
     # apply blanket accumulation to a subset of the product distribution
-    return Product([(ix == i) ? conditioned(d, blanket_logp) : d
-                    for (i, d) in enumerate(d0.v)])
+
+    ix_cartesian = CartesianIndex(ix)
+    p = Product([(ix_cartesian == i) ? conditioned(d, blanket_logp) : d
+                 for (i, d) in pairs(IndexCartesian(), d0.v)])
+    return p
 end
 
 conditioned(d0::Distribution, blanket_logps) =
