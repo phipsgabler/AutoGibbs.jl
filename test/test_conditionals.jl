@@ -148,8 +148,12 @@ graph_changepoint = trackdependencies(model_changepoint)
 
 
 @model function reverse_deps(x)
-    m = Vector{Float64}(2)
+    m = Vector{Float64}(undef, 2)
     m[1] ~ Normal()
     m[2] ~ Normal()
     x ~ MvNormal(m)
 end
+
+model_reverse_deps = reverse_deps([0.1, -0.2])
+graph_reverse_deps = trackdependencies(model_reverse_deps)
+@testdependencies(model_reverse_deps, m[1], m[2], x)

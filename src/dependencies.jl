@@ -289,58 +289,6 @@ getvn(::Constant) = nothing
 
 
 """
-    dependencies(stmt)
-
-Direct dependencies of a graph statement: all references that occur within it.  For a call that
-results in a random variable (like `z[3] = getindex(⟨32⟩, ⟨72⟩) → 2`), the dependency on then
-tilde statement of that variable is included as well.
-"""
-# function dependencies end
-
-# dependencies(::Constant) = Reference[]
-# function dependencies(stmt::Tilde)
-#     deps = dependencies(stmt.dist)
-#     stmt.value isa Reference && push!(deps, stmt.value)
-#     return deps
-# end
-# function dependencies(stmt::Call{<:Any, getindex})
-#     deps = Reference[]
-#     if !isnothing(stmt.definition)
-#         vn, location = stmt.definition
-#         push!(deps, location)
-#     end
-#     return deps
-# end
-
-
-# """
-#     parent_variables(graph, stmt)
-
-# Return all `Assumption`s (potentially with indexing) that the tilde `stmt` depends on directly.
-# """
-# function parent_variables(graph, stmt)
-#     result = Set{Tuple{Assumption, Tuple}}()
-    
-#     for dep in dependencies(stmt)
-#         ref = graph[dep]
-#         if ref isa Assumption
-#             push!(result, (ref, ()))
-#         elseif ref isa Call
-#             if ref.f isa typeof(getindex) && !isnothing(ref.definition)
-#                 vn, location = ref.definition
-#                 push!(result, (graph[location], DynamicPPL.getindexing(vn)))
-#             else
-#                 union!(result, parent_variables(graph, ref))
-#             end
-#         elseif graph[dep] isa Observation
-#             @warn "The parent of $stmt is an observation ($(ref)), something weird has happened..."
-#         end
-#     end
-
-#     return result
-# end
-
-"""
     parent_variables(graph, stmt)
 
 Return all `Assumption`s (potentially with indexing) that the tilde `stmt` depends on directly.
@@ -353,8 +301,31 @@ function parent_variables(graph, stmt::Tilde)
 end
 
 parent_variables!(result, graph, stmt) = result
-parent_variables!(result, graph, ref::Reference) = parent_variables!(result, graph, graph[ref])
+function parent_variables!(result, graph, ref::Reference)
+    # follow back implicit dependencies on unmarked locations without indexing, e.g.
+    # ⟨2⟩ = [0.1, -0.2]
+    # ⟨3⟩ = Array{Float64,1}(array initializer with undefined values, 2) → ...
+    # ⟨6⟩ = m[1] ~ Normal() → ...
+    # ⟨7⟩ = m[1] = getindex(⟨3⟩, 1) → ...
+    # ⟨10⟩ = m[2] ~ Normal() → ...
+    # ⟨11⟩ = m[2] = getindex(⟨3⟩, 2) → ...
+    # ⟨13⟩ = x ⩪ MvNormal(⟨3⟩) ← ⟨2⟩
+    # `x` depends on the whole of `m`, stored in `⟨3⟩`, and thus implicitly
+    # on `m[1]` and `m[2]` (cf. reverse_deps test case).
+    
+    if haskey(graph.rv_locations, ref)
+        for (ix, loc) in graph.rv_locations[ref]
+            loc == ref && continue # skip one-line array tildes, e.g., z ~ filldist(...)
+            parent_variables!(result, graph, loc)
+        end
+    end
+    
+    return parent_variables!(result, graph, graph[ref])
+end
 function parent_variables!(result, graph, stmt::Assumption)
+    # direct dependency:
+    # ⟨31⟩ = w ~ Dirichlet()
+    # ⟨42⟩ = z[1] ~ DiscreteNonParametric(⟨31⟩)
     return push!(result, (stmt, nothing))
 end
 function parent_variables!(result, graph, stmt::Observation)
@@ -362,27 +333,23 @@ function parent_variables!(result, graph, stmt::Observation)
     return result
 end
 function parent_variables!(result, graph, stmt::Call{<:Nothing})
+    # go through all argumens of an unmarked location:
+    # ⟨85⟩ = getindex(⟨2⟩, ⟨72⟩) → 1.0
+    # ⟨86⟩ = x[3] ⩪ Normal(⟨80⟩, 1.0) ← ⟨85⟩
+    
     for arg in stmt.args
         parent_variables!(result, graph, arg)
     end
+    
     return result
 end
 function parent_variables!(result, graph, stmt::Call{<:Tuple})
+    # also go back to variable definition site of a marked location:
+    # ⟨28⟩ = μ[2] ~ Normal() → 0.851814791967429
+    # ⟨80⟩ = μ[2] = getindex(⟨9⟩, ⟨79⟩) → 0.851814791967429
+    # ⟨86⟩ = x[3] ⩪ Normal(⟨80⟩, 1.0) ← ⟨85⟩
+
     for arg in stmt.args
-        parent_variables!(result, graph, arg)
-    end
-    vn, location = stmt.definition
-    push!(result, (graph[location], DynamicPPL.getindexing(vn)))
-    return result
-end
-function parent_variables!(result, graph, stmt::Call{<:Nothing, typeof(getindex)})
-    for arg in stmt.args
-        parent_variables!(result, graph, arg)
-    end
-    return result
-end
-function parent_variables!(result, graph, stmt::Call{<:Tuple, typeof(getindex)})
-    for arg in Base.tail(stmt.args)
         parent_variables!(result, graph, arg)
     end
     vn, location = stmt.definition
@@ -637,9 +604,10 @@ function pushnode!(graph, node::CallingNode{typeof(setindex!)})
         # to associate the value with the array position it is assigned to here.
         setrv!(graph, (mutated, indexing_values) => value)
         
-        # we also replace the `setindex!` call that followed the tilde node
-        # by a `getindex` on the same value, to preserve the information of the dependency of
-        # between the variable, the array, and the index
+        # # we can also replace the `setindex!` call that followed the tilde node
+        # # by a `getindex` on the same value, to preserve the information of the dependency of
+        # # between the variable, the array, and the index
+        # # PROBABLY UNNEEDED? see reverse_deps test case in test_conditionals
         definition = (graph[value].vn, value)
         ref = makereference!(graph, node)
         graph[ref] = Call(definition, getindex, (mutated, indexing...), tovalue(graph, value))
