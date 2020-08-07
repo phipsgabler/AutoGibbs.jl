@@ -111,14 +111,15 @@ function conditional_dists(graph, varname)
     end
 
     result = Dict{VarName, Distribution}()
-
+    
     for (vn, d) in dists
         result[vn] = d
 
         for ((b, ix), ℓ) in blankets
             if DynamicPPL.subsumes(vn, b)
-                # @show vn => actual_index
+                # @show vn => (b, ix)
                 if !isnothing(ix)
+                    @assert DynamicPPL.subsumes(DynamicPPL.getindexing(vn), ix)
                     push!(result, vn => conditioned(d, ℓ, ix...))
                 else
                     push!(result, vn => conditioned(d, ℓ))
@@ -202,8 +203,11 @@ function conditioned(d0::DiscreteUnivariateDistribution, blanket_logp)
     end
     
     logtable = logpdf.(d0, Ω) .+ blanket_logp
+    # @show log.(softmax(logtable))
     return DiscreteNonParametric(Ω, softmax!(logtable))
 end
+
+conditioned(d0::DiscreteUnivariateDistribution, blanket_logp, ix) = conditioned(d0, blanket_logp)
 
 # `Product`s can be treated as an array of iid variables
 conditioned(d0::Product, blanket_logp) = Product(conditioned.(d0.v, blanket_logp))
@@ -237,6 +241,8 @@ function softmax!(x::AbstractArray{<:AbstractFloat})
     
     return x
 end
+
+softmax(x::AbstractArray{<:AbstractFloat}) = softmax!(copy(x))
 
 
 
