@@ -15,11 +15,14 @@ let w = graph_bernoulli[4].value,
     x = graph_bernoulli[2].value,
     p1 = w[1] * pdf(Bernoulli(p), x),
     p2 = w[2] * pdf(Bernoulli(p), x),
-    z = p1 + p2
+    Z = p1 + p2
 
+    # 𝓅(p | w, x) ∝ 𝓅(p | w) * 𝓅(x | p)
+    D_cond = DiscreteNonParametric([0.3, 0.7], [p1 / Z, p2 / Z])
+    
     local conditional
     @test_nothrow conditional = conditional_dists(graph_bernoulli, @varname(p))[@varname(p)]
-    @test issimilar(conditional, DiscreteNonParametric([0.3, 0.7], [p1 / z, p2 / z]))
+    @test issimilar(conditional, D_cond)
 end
 
 
@@ -40,6 +43,23 @@ graph_gmm = trackdependencies(model_gmm)
 @testdependencies(model_gmm, μ, w, z, x[1], x[2], x[3])
 @test_nothrow sample(model_gmm, Gibbs(AutoConditional(:z), MH(:w, :μ)), 2)
 @test_nothrow sample(model_gmm, Gibbs(AutoConditional(:z), HMC(0.01, 10, :w, :μ)), 2)
+
+let μ = graph_gmm[7].value,
+    w = graph_gmm[9].value,
+    z = graph_gmm[12].value,
+    x = graph_gmm[2].value,
+    p_z1 = w[1] .* pdf.(Normal.(μ[z], 1.0), x),
+    p_z2 = w[2] .* pdf.(Normal.(μ[z], 1.0), x),
+    Z = p_z1 .+ p_z2
+
+    # 𝓅(zᵢ | μ, w, x, z₋ᵢ) ∝ 𝓅(zᵢ | w) * 𝓅(xᵢ | zᵢ, μ)
+    D_cond = Product([DiscreteNonParametric([1, 2], [p1, p2])
+                      for (p1, p2) in  zip(p_z1 ./ Z, p_z2 ./ Z)])
+
+    local conditional
+    @test_nothrow conditional = conditional_dists(graph_gmm, @varname(z))[@varname(z)]
+    @test issimilar(conditional, D_cond)
+end
 
 
 @model function gmm_loopy(x, K, ::Type{T}=Float64) where {T<:Real}
@@ -63,6 +83,26 @@ graph_gmm_loopy = trackdependencies(model_gmm_loopy)
 @testdependencies(model_gmm_loopy, μ[1], μ[2], w, z[1], z[2], z[3], x[1], x[2], x[3])
 @test_nothrow sample(model_gmm_loopy, Gibbs(AutoConditional(:z), MH(:w, :μ)), 2)
 @test_nothrow sample(model_gmm_loopy, Gibbs(AutoConditional(:z), HMC(0.01, 10, :w, :μ)), 2)
+
+let μ = [graph_gmm_loopy[19].value, graph_gmm_loopy[28].value],
+    w = graph_gmm_loopy[31].value,
+    z = [graph_gmm_loopy[42].value, graph_gmm_loopy[60].value, graph_gmm_loopy[77].value],
+    x = graph_gmm_loopy[2].value,
+    p_z1 = w[1] .* pdf.(Normal.(μ[z], 1.0), x),
+    p_z2 = w[2] .* pdf.(Normal.(μ[z], 1.0), x),
+    Z = p_z1 .+ p_z2
+
+    # 𝓅(zᵢ | μ, w, x, z₋ᵢ) ∝ 𝓅(zᵢ | w) * 𝓅(xᵢ | zᵢ, μ)
+    D_conds = Dict(@varname(z[i]) => DiscreteNonParametric([1, 2], [p1, p2])
+               for (i, p1, p2) in  zip(1:3, p_z1 ./ Z, p_z2 ./ Z))
+
+    local conditionals
+    @test_nothrow conditionals = conditional_dists(graph_gmm_loopy, @varname(z))
+    for (vn, conditional) in conditionals
+        @show probs(conditional), probs(D_conds[vn])
+        @test issimilar(conditional, D_conds[vn])
+    end
+end
 
 
 @model function hmm(x, K, ::Type{T}=Float64) where {T<:Real}

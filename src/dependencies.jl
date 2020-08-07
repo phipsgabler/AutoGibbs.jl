@@ -334,7 +334,7 @@ function parent_variables!(result, graph, stmt::Observation)
 end
 function parent_variables!(result, graph, stmt::Call{<:Nothing})
     # go through all argumens of an unmarked location:
-    # ⟨85⟩ = getindex(⟨2⟩, ⟨72⟩) → 1.0
+    # ⟨85⟩ = getindex(⟨2⟩, ⟨72⟩)
     # ⟨86⟩ = x[3] ⩪ Normal(⟨80⟩, 1.0) ← ⟨85⟩
     
     for arg in stmt.args
@@ -343,24 +343,25 @@ function parent_variables!(result, graph, stmt::Call{<:Nothing})
     
     return result
 end
-function parent_variables!(result, graph, stmt::Call{<:Tuple})
-    # also go back to variable definition site of a marked location:
-    # ⟨28⟩ = μ[2] ~ Normal() → 0.851814791967429
-    # ⟨80⟩ = μ[2] = getindex(⟨9⟩, ⟨79⟩) → 0.851814791967429
-    # ⟨86⟩ = x[3] ⩪ Normal(⟨80⟩, 1.0) ← ⟨85⟩
+# function parent_variables!(result, graph, stmt::Call{<:Tuple})
+#     # also go back to variable definition site of a marked location:
+#     # ⟨9⟩ = ⟨8⟩(array initializer with undefined values, ⟨4⟩)
+#     # ⟨28⟩ = μ[2] ~ Normal()
+#     # ⟨80⟩ = f(⟨9⟩, ⟨79⟩)
+#     # ⟨86⟩ = x[3] ⩪ Normal(⟨80⟩, 1.0) ← ⟨85⟩
 
-    for arg in stmt.args
-        parent_variables!(result, graph, arg)
-    end
-    vn, location = stmt.definition
-    push!(result, (graph[location], DynamicPPL.getindexing(vn)))
-    return result
-end
+#     for arg in stmt.args
+#         parent_variables!(result, graph, arg)
+#     end
+#     vn, location = stmt.definition
+#     push!(result, (graph[location], DynamicPPL.getindexing(vn)))
+#     return result
+# end
 function parent_variables!(result, graph, stmt::Call{<:Tuple, typeof(getindex)})
     # special case: don't add whole array (`z`) for indexing calls
-    # ⟨12⟩ = z ~ filldist(⟨10⟩, ⟨5⟩) → [1, 2, 1]
-    # ⟨30⟩ = z[2] = getindex(⟨12⟩, ⟨28⟩) → 2
-    # ⟨31⟩ = μ[2] = getindex(⟨7⟩, ⟨30⟩) → 0.15671747610335648
+    # ⟨12⟩ = z ~ filldist(⟨10⟩, ⟨5⟩)
+    # ⟨30⟩ = z[2] = getindex(⟨12⟩, ⟨28⟩)
+    # ⟨31⟩ = μ[2] = getindex(⟨7⟩, ⟨30⟩)
     for arg in Base.tail(stmt.args)
         parent_variables!(result, graph, arg)
     end

@@ -60,6 +60,10 @@ macro test_nothrow(ex)
 end
 
 function issimilar(d1::DiscreteNonParametric, d2::DiscreteNonParametric; atol::Real=0)
-    return all(isapprox.(support(d1), support(d2); atol=atol)) &&
+    return (support(d1) == support(d2)) &&
         all(isapprox.(probs(d1), probs(d2); atol=atol))
+end
+
+function issimilar(p1::Product, p2::Product; atol::Real=0)
+    return all(issimilar(d1, d2) for (d1, d2) in zip(p1.v, p2.v))
 end
