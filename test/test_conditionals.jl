@@ -102,7 +102,7 @@ let μ = [graph_gmm_loopy[19].value, graph_gmm_loopy[28].value],
         @show probs(conditional), probs(D_conds[vn])
         @test issimilar(conditional, D_conds[vn])
     end
-end
+end 
 
 
 @model function hmm(x, K, ::Type{T}=Float64) where {T<:Real}
@@ -138,9 +138,41 @@ end
 
 model_hmm = hmm([0.1, -0.05, 1.0], 2)
 graph_hmm = trackdependencies(model_hmm)
-@testdependencies(model_hmm, T[1], T[2], m[1], m[2], s[1], s[2], s[3], x[1], x[2], x[3])
-@test_nothrow sample(model_hmm, Gibbs(AutoConditional(:s), MH(:m, :T)), 2)
-@test_nothrow sample(model_hmm, Gibbs(AutoConditional(:s), HMC(0.01, 10, :m, :T)), 2)
+# @testdependencies(model_hmm, T[1], T[2], m[1], m[2], s[1], s[2], s[3], x[1], x[2], x[3])
+# @test_nothrow sample(model_hmm, Gibbs(AutoConditional(:s), MH(:m, :T)), 2)
+# @test_nothrow sample(model_hmm, Gibbs(AutoConditional(:s), HMC(0.01, 10, :m, :T)), 2)
+
+
+let T = [graph_hmm[23].value, graph_hmm[38].value],
+    m = [graph_hmm[29].value, graph_hmm[44].value],
+    s1 = graph_hmm[48].value,
+    s2 = graph_hmm[68].value,
+    s3 = graph_hmm[88].value,
+    x = graph_hmm[2].value,
+    p_s1_1 = 0.5 * pdf(Categorical(T[s1]), 1) * pdf(Normal(m[s1]), x[1]),
+    p_s1_2 = 0.5 * pdf(Categorical(T[s1]), 2) * pdf(Normal(m[s1]), x[1]),
+    p_s2_1 = pdf(Categorical(T[s1]), 1) * pdf(Categorical(T[1]), s3) * pdf(Normal(m[1]), x[2]),
+    p_s2_2 = pdf(Categorical(T[s1]), 2) * pdf(Categorical(T[2]), s3) * pdf(Normal(m[2]), x[2]),
+    p_s3_1 = pdf(Categorical(T[s2]), 1) * pdf(Normal(m[1]), x[3]),
+    p_s3_2 = pdf(Categorical(T[s2]), 2) * pdf(Normal(m[2]), x[3]),
+    Z1 = p_s1_1 + p_s1_2,
+    Z2 = p_s2_1 + p_s2_2,
+    Z3 = p_s3_1 + p_s3_2
+
+    # 𝓅(s₁ | T, m, s₋₁, x) ∝ 𝓅(s₁) 𝓅(s₂ | s₁, T) 𝓅(x₁ | s₁, m)
+    #  𝓅(sᵢ | T, m, s₋ᵢ, x) ∝  𝓅(sᵢ | sᵢ₋₁, T) 𝓅(sᵢ₊₁ | sᵢ, T) 𝓅(xᵢ | sᵢ, m) (for i ≥ 2)
+    D_conds = Dict(@varname(s[1]) => Categorical([p_s1_1 / Z1, p_s1_2 / Z1]),
+                   @varname(s[2]) => Categorical([p_s2_1 / Z2, p_s2_2 / Z2]),
+                   @varname(s[3]) => Categorical([p_s3_1 / Z3, p_s3_2 / Z3]))
+
+    local conditionals
+    @test_nothrow conditionals = conditional_dists(graph_hmm, @varname(s))
+    for (vn, conditional) in conditionals
+        @show vn => probs(conditional), probs(D_conds[vn])
+        @test issimilar(conditional, D_conds[vn])
+    end
+end
+
 
 
 @model function imm(x)
