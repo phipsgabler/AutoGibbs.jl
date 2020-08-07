@@ -356,6 +356,18 @@ function parent_variables!(result, graph, stmt::Call{<:Tuple})
     push!(result, (graph[location], DynamicPPL.getindexing(vn)))
     return result
 end
+function parent_variables!(result, graph, stmt::Call{<:Tuple, typeof(getindex)})
+    # special case: don't add whole array (`z`) for indexing calls
+    # ⟨12⟩ = z ~ filldist(⟨10⟩, ⟨5⟩) → [1, 2, 1]
+    # ⟨30⟩ = z[2] = getindex(⟨12⟩, ⟨28⟩) → 2
+    # ⟨31⟩ = μ[2] = getindex(⟨7⟩, ⟨30⟩) → 0.15671747610335648
+    for arg in Base.tail(stmt.args)
+        parent_variables!(result, graph, arg)
+    end
+    vn, location = stmt.definition
+    push!(result, (graph[location], DynamicPPL.getindexing(vn)))
+    return result
+end
 
 
 
