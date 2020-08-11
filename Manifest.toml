@@ -159,6 +159,7 @@ uuid = "8ba89e20-285c-5b6f-9357-94700520ee1b"
 [[Distributions]]
 deps = ["FillArrays", "LinearAlgebra", "PDMats", "Printf", "QuadGK", "Random", "SpecialFunctions", "Statistics", "StatsBase", "StatsFuns"]
 git-tree-sha1 = "c4ed10355637fcb0725dc6a27060f74df24f13cd"
+pinned = true
 uuid = "31c24e10-a181-5473-b8eb-7969acd0382f"
 version = "0.23.2"
 
@@ -177,6 +178,7 @@ version = "0.8.2"
 [[DynamicPPL]]
 deps = ["AbstractMCMC", "Bijectors", "Distributions", "MacroTools", "Random", "ZygoteRules"]
 git-tree-sha1 = "a14c2bd19168682db11be7e3d106bef157813b5f"
+pinned = true
 uuid = "366bfd00-2699-11ea-058f-f148b4cae6d8"
 version = "0.8.1"
 
@@ -224,6 +226,7 @@ version = "0.3.3"
 [[IRTracker]]
 deps = ["IRTools", "LightGraphs", "MetaGraphs"]
 git-tree-sha1 = "ca5564c4ba3aebdafc0c2473504e2d00645cc97f"
+pinned = true
 repo-rev = "master"
 repo-url = "https://github.com/TuringLang/IRTracker.jl.git"
 uuid = "591544fa-5de1-11e9-31f7-cbfeeb0dfc0e"
@@ -570,6 +573,7 @@ version = "0.3.8"
 [[Turing]]
 deps = ["AbstractMCMC", "AdvancedHMC", "AdvancedMH", "Bijectors", "Distributions", "DistributionsAD", "DocStringExtensions", "DynamicPPL", "EllipticalSliceSampling", "ForwardDiff", "Libtask", "LinearAlgebra", "LogDensityProblems", "MCMCChains", "NamedArrays", "Printf", "ProgressLogging", "Random", "Reexport", "Requires", "SpecialFunctions", "Statistics", "StatsBase", "StatsFuns", "Tracker"]
 git-tree-sha1 = "05a603806e99b1b39e1537164ce09fd987849e4c"
+pinned = true
 repo-rev = "6d3bb58a"
 repo-url = "https://github.com/TuringLang/Turing.jl.git"
 uuid = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
