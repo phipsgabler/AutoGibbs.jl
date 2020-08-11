@@ -99,13 +99,19 @@ function conditional_dists(graph, varname)
                     # @show p.vn => ℓ
                     
                     # x, nothing ~> x; x, (1,) ~> x[1]
+                    # @show (p.vn, ix) => ℓ
                     blankets[(p.vn, ix)] += ℓ
+
+                    println("Found variable $vn being dependent on ($(p.vn), $ix) " *
+                            "with likelihood $ℓ and value $value")
                 end
             end
 
             # record distribution of this tilde if it matches the searched vn
             if DynamicPPL.subsumes(varname, vn)
                 dists[vn] = dist
+                # @show vn => dist
+                println("Found variable $vn with value $value")
             end
         end
     end
@@ -121,6 +127,7 @@ function conditional_dists(graph, varname)
                 if !isnothing(ix)
                     @assert DynamicPPL.subsumes(DynamicPPL.getindexing(vn), ix)
                     push!(result, vn => conditioned(d, ℓ, ix...))
+                    println("Update $vn from ($b, $ix) with $ℓ")
                 else
                     push!(result, vn => conditioned(d, ℓ))
                 end
@@ -193,7 +200,7 @@ where the factors `blanket_logps` are the log probabilities in the Markov blanke
 
 The result is an array to allow to condition `Product` distributions.
 """
-function conditioned(d0::DiscreteUnivariateDistribution, blanket_logp)
+function conditioned(d0::DiscreteUnivariateDistribution, blanket_logp::Real)
     local Ω
 
     try
