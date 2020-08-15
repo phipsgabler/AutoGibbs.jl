@@ -102,8 +102,8 @@ function conditional_dists(graph, varname)
                     # @show (p.vn, ix) => ℓ
                     blankets[(p.vn, ix)] += ℓ
 
-                    println("Found variable $vn being dependent on ($(p.vn), $ix) " *
-                            "with likelihood $ℓ and value $value")
+                    # println("Found variable $vn being dependent on ($(p.vn), $ix) " *
+                            # "with likelihood $ℓ and value $value")
                 end
             end
 
@@ -111,7 +111,7 @@ function conditional_dists(graph, varname)
             if DynamicPPL.subsumes(varname, vn)
                 dists[vn] = dist
                 # @show vn => dist
-                println("Found variable $vn with value $value")
+                # println("Found variable $vn with value $value")
             end
         end
     end
@@ -120,14 +120,14 @@ function conditional_dists(graph, varname)
     
     for (vn, d) in dists
         result[vn] = d
-
+        
         for ((b, ix), ℓ) in blankets
             if DynamicPPL.subsumes(vn, b)
                 # @show vn => (b, ix)
                 if !isnothing(ix)
                     @assert DynamicPPL.subsumes(DynamicPPL.getindexing(vn), ix)
                     push!(result, vn => conditioned(d, ℓ, ix...))
-                    println("Update $vn from ($b, $ix) with $ℓ")
+                    # println("Update $vn from ($b, $ix) with $ℓ")
                 else
                     push!(result, vn => conditioned(d, ℓ))
                 end
@@ -210,7 +210,8 @@ function conditioned(d0::DiscreteUnivariateDistribution, blanket_logp::Real)
     end
     
     logtable = logpdf.(d0, Ω) .+ blanket_logp
-    # @show log.(softmax(logtable))
+    # @show logpdf.(d0, Ω)
+    # @show (softmax(logtable))
     return DiscreteNonParametric(Ω, softmax!(logtable))
 end
 
