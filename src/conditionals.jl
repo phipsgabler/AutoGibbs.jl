@@ -58,14 +58,17 @@ function (ℓ::LogLikelihood)(θ) where {D}
 end
 
 
-function conts(graph)
+function continuations(graph)
     c = SortedDict{Reference, Cont}()
     
     function convertarg(arg)
         if arg isa Reference
             cont = c[arg]
-            if cont isa LogLikelihood
-                Variable(graph[arg].vn)
+            stmt = graph[arg]
+            if cont isa LogLikelihood && !isnothing(stmt.vn)
+                Variable(stmt.vn)
+            elseif cont isa Transformation && !isnothing(stmt.definition)
+                Variable(stmt.definition[1])
             else
                 cont
             end
@@ -76,18 +79,31 @@ function conts(graph)
     
     for (ref, stmt) in graph
         if stmt isa Union{Assumption, Observation}
-            dist_call, value = stmt.dist, tovalue(graph, getvalue(stmt))
+            dist_call = stmt.dist
+
             if dist_call isa Call
                 args = convertarg.(dist_call.args)
                 D = typeof(getvalue(dist_call))
-                @show typeof(args)
-                c[ref] = LogLikelihood(D, value, args)
             elseif dist_call isa Constant
                 dist = getvalue(dist_call)
-                c[ref] = LogLikelihood(typeof(dist), value, params(dist))
+                D = typeof(dist)
+                args = Fixed.(params(dist))
             end
+
+            if stmt isa Observation
+                value = convertarg(getvalue(stmt))
+            else
+                value = Variable(stmt.vn)
+            end
+            c[ref] = LogLikelihood(D, value, args)
+        # elseif stmt isa Call{<:Tuple, typeof(getindex)}
+        #     vn, compound_ref = stmt.definition
+        #     ix = getindexing(vn)[1]
+        #     f, args = stmt.f, convertarg.(stmt.args)
+        #     dist = graph[compound_ref].v[ix...]
+        #     value = Variable(VarName(graph[compound_ref].vn, (ix,)))
+        #     c[ref] = LogLikelihood(typeof(dist), value, )
         elseif stmt isa Call
-            @show "t" => stmt
             f, args = stmt.f, convertarg.(stmt.args)
             c[ref] = Transformation(f, args)
         elseif stmt isa Constant
@@ -99,108 +115,137 @@ function conts(graph)
 end
 
 
+Base.getindex(x::Union{Number, AbstractArray}, vn::VarName) = foldl((x, i) -> getindex(x, i...),
+                                                                    DynamicPPL.getindexing(vn),
+                                                                    init=x)
 
-"""
-    conditional_dists(graph, varname)
-
-Derive a dictionary of Gibbs conditionals for all assumption statements in `graph` that are subsumed
-by `varname`.
-"""
-function conditional_dists(graph, varname)
+function conditionals(graph, varname)
     # There can be multiple tildes for one `varname`, e.g., `x[1], x[2]` both subsumed by `x`.
-    dists = Dict{VarName, Distribution}()
-    blankets = DefaultDict{Tuple{VarName, Union{Nothing, Tuple}}, Float64}(0.0)
+    # dists = Dict{VarName, Distribution}()
+    # blankets = DefaultDict{Tuple{VarName, Union{Nothing, Tuple}}, Float64}(0.0)
+    blankets = DefaultDict{VarName, Vector{Pair{Tuple, LogLikelihood}}}(
+        Vector{Pair{Tuple, LogLikelihood}})
+    conts = continuations(graph)
     
     for (ref, stmt) in graph
         if stmt isa Union{Assumption, Observation} && !isnothing(stmt.vn)
             vn, dist, value = stmt.vn, getvalue(stmt.dist), tovalue(graph, getvalue(stmt))
 
+            # record distribution of this tilde if it matches the searched vn
+            if DynamicPPL.subsumes(varname, vn)
+                push!(blankets[vn], DynamicPPL.getindexing(vn) => conts[ref])
+            end
+            
             # add likelihood to all parents of which this RV is in the blanket
             for (p, ix) in parent_variables(graph, stmt)
-                if any(DynamicPPL.subsumes(r, p.vn) for r in keys(dists))
+                if any(DynamicPPL.subsumes(r, p.vn) for r in keys(blankets))
+                    push!(blankets[p.vn], ix => conts[ref])
                     # @show stmt => (p, ix)
-                    ℓ = logpdf(dist, value)
+                    # ℓ = logpdf(dist, value)
                     # @show dist, value
                     # @show vn
                     # @show p.vn => ℓ
                     
                     # x, nothing ~> x; x, (1,) ~> x[1]
                     # @show (p.vn, ix) => ℓ
-                    blankets[(p.vn, ix)] += ℓ
+                    # blankets[(p.vn, ix)] += ℓ
 
                     # println("Found variable $vn being dependent on ($(p.vn), $ix) " *
                             # "with likelihood $ℓ and value $value")
                 end
             end
 
-            # record distribution of this tilde if it matches the searched vn
-            if DynamicPPL.subsumes(varname, vn)
-                dists[vn] = dist
-                # @show vn => dist
-                # println("Found variable $vn with value $value")
-            end
+
         end
     end
 
-    result = Dict{VarName, Distribution}()
+    # result = Dict{VarName, Distribution}()
     
-    for (vn, d) in dists
-        result[vn] = d
+    # for (vn, d) in dists
+    #     result[vn] = d
         
-        for ((b, ix), ℓ) in blankets
-            if DynamicPPL.subsumes(vn, b)
-                # @show vn => (b, ix)
-                if !isnothing(ix)
-                    @assert DynamicPPL.subsumes(DynamicPPL.getindexing(vn), ix)
-                    push!(result, vn => conditioned(d, ℓ, ix...))
-                    # println("Update $vn from ($b, $ix) with $ℓ")
-                else
-                    push!(result, vn => conditioned(d, ℓ))
-                end
-            end
-        end
-    end
+    #     for ((b, ix), ℓ) in blankets
+    #         if DynamicPPL.subsumes(vn, b)
+    #             # @show vn => (b, ix)
+    #             if !isnothing(ix)
+    #                 @assert DynamicPPL.subsumes(DynamicPPL.getindexing(vn), ix)
+    #                 push!(result, vn => conditioned(d, ℓ, ix...))
+    #                 # println("Update $vn from ($b, $ix) with $ℓ")
+    #             else
+    #                 push!(result, vn => conditioned(d, ℓ))
+    #             end
+    #         end
+    #     end
+    # end
+
+    blankets
     
-    return result
+    # return result
 end
 
 
-# function conditionals(graph, varname)
+# """
+#     conditional_dists(graph, varname)
+
+# Derive a dictionary of Gibbs conditionals for all assumption statements in `graph` that are subsumed
+# by `varname`.
+# """
+# function conditional_dists(graph, varname)
 #     # There can be multiple tildes for one `varname`, e.g., `x[1], x[2]` both subsumed by `x`.
-#     dists = Dict{Reference, Distribution}()
-#     blankets = DefaultDict{Reference, Vector{LogLikelihood}}(Vector{LogLikelihood})
+#     dists = Dict{VarName, Distribution}()
+#     blankets = DefaultDict{Tuple{VarName, Union{Nothing, Tuple}}, Float64}(0.0)
     
 #     for (ref, stmt) in graph
-#         # record distribution of every matching node
-#         if !isnothing(ref.vn) && DynamicPPL.subsumes(varname, ref.vn)
-#             dists[ref] = getvalue(stmt.dist)
-#         end
+#         if stmt isa Union{Assumption, Observation} && !isnothing(stmt.vn)
+#             vn, dist, value = stmt.vn, getvalue(stmt.dist), tovalue(graph, getvalue(stmt))
 
-        
-#         for p in parents(stmt)
-#             if p isa Union{Assumption, Observation} && haskey(dists, p)
-                
+#             # add likelihood to all parents of which this RV is in the blanket
+#             for (p, ix) in parent_variables(graph, stmt)
+#                 if any(DynamicPPL.subsumes(r, p.vn) for r in keys(dists))
+#                     # @show stmt => (p, ix)
+#                     ℓ = logpdf(dist, value)
+#                     # @show dist, value
+#                     # @show vn
+#                     # @show p.vn => ℓ
+                    
+#                     # x, nothing ~> x; x, (1,) ~> x[1]
+#                     # @show (p.vn, ix) => ℓ
+#                     blankets[(p.vn, ix)] += ℓ
+
+#                     # println("Found variable $vn being dependent on ($(p.vn), $ix) " *
+#                             # "with likelihood $ℓ and value $value")
+#                 end
 #             end
-#         end
-        
-#         # record all parents that are random variables
-#         direct_dependencies = Reference[arg for arg in stmt.args if arg isa Reference]
-#         mapreduce(dependencies,
-#                          append!,
-#                          direct_dependencies,
-#                          init=direct_dependencies)
-#         rvs = filter((i, p) -> haskey(dists, p), dependencies(stmt))
 
-#         # update the blanket likelihoods for all rv parents
-
-#         for (i, p) in rvs
-#             child = graph[p]
-#             child_dist, child_value = getvalue(child.dist), child.value
-#             push!(blankets[p], LogLikelihood{i}(typeof(child_dist), child_value, ))
+#             # record distribution of this tilde if it matches the searched vn
+#             if DynamicPPL.subsumes(varname, vn)
+#                 dists[vn] = dist
+#                 # @show vn => dist
+#                 # println("Found variable $vn with value $value")
+#             end
 #         end
 #     end
 
-#     return Dict(dereference(graph, r.vn) => nothing for (r, d) in dists)
+#     result = Dict{VarName, Distribution}()
+    
+#     for (vn, d) in dists
+#         result[vn] = d
+        
+#         for ((b, ix), ℓ) in blankets
+#             if DynamicPPL.subsumes(vn, b)
+#                 # @show vn => (b, ix)
+#                 if !isnothing(ix)
+#                     @assert DynamicPPL.subsumes(DynamicPPL.getindexing(vn), ix)
+#                     push!(result, vn => conditioned(d, ℓ, ix...))
+#                     # println("Update $vn from ($b, $ix) with $ℓ")
+#                 else
+#                     push!(result, vn => conditioned(d, ℓ))
+#                 end
+#             end
+#         end
+#     end
+    
+#     return result
 # end
 
 
