@@ -6,71 +6,97 @@ using DynamicPPL
 export conditional_dists
 
 
-"""
-    _insert(a::Tuple, ::Val{index}, item)
-
-Insert `item` into `a` at `index`: `_insert((1, 2, 3), Val(2), :x) ~> (1, :x, 2, 3)`.
-"""
-@generated function _insert(a::Tuple, ::Val{index}, item) where {index}
-    L = length(a.parameters)
-    if 1 ≤ index ≤ L + 1
-        range_before = 1:(index-1)
-        range_after = index:L
-        return Expr(:tuple,
-                    (:(a[$i]) for i in range_before)...,
-                    :item,
-                    (:(a[$i]) for i in range_after)...)
-    else
-        throw(ArgumentError("Can't insert into length $L tuple at index $index"))
-    end
-end
+abstract type Cont end
 
 
+abstract type ArgSpec <: Cont end
 
-"""
-Fix all except the `N`th argument of `D`, and the observed value; if 
-
-    ℓ = LogLikelihood{N}(D, value, args...)
-
-then
-
-    ℓ(x) = logpdf(D(args[1], ..., args[N-1], x, args[N+1], ..., args[K]), value)
-"""
-struct LogLikelihood{N, D<:Distribution, T, Args<:Tuple}
+struct Fixed{T} <: ArgSpec
     value::T
-    args::Args
+end
+Base.show(io::IO, arg::Fixed) = print(io, arg.value)
+(arg::Fixed)(θ) = arg.value
+
+struct Variable{TV<:VarName} <: ArgSpec
+    vn::TV
+end
+Base.show(io::IO, arg::Variable) = print(io, "θ[", arg.vn, "]")
+(arg::Variable)(θ) = getindex(θ, arg.vn)
+
+
+struct Transformation{TF, N, TArgs<:NTuple{N, Cont}} <: Cont
+    f::TF
+    args::TArgs
+end
+
+function Base.show(io::IO, t::Transformation)
+    print(io, t.f, "(")
+    join(io, t.args, ", ")
+    print(io, ")")
+end
+
+(t::Transformation)(θ) = t.f((arg(θ) for arg in t.args)...)
+
+
+struct LogLikelihood{D<:Distribution, TVal, TArgs<:Tuple} <: Cont
+    value::TVal
+    args::TArgs
     
-    function LogLikelihood{N}(::Type{D}, value, args...) where {N, D<:Distribution}
-        L = length(args) + 1
-        (1 ≤ N ≤ L) || throw(ArgumentError("$N is not in 1:$L"))
-        return new{N, D, typeof(value), typeof(args)}(value, args)
+    function LogLikelihood(::Type{D}, value, args::NTuple{N, Cont}) where {D<:Distribution, N}
+        return new{D, typeof(value), typeof(args)}(value, args)
     end
 end
 
-function Base.show(io::IO, ℓ::LogLikelihood{N, D}) where {N, D}
-    L = length(ℓ.args) + 1
-    print(io, "θ -> logpdf(", D, "(")
-    join(io, _insert(ℓ.args, Val(N), "θ"), ", ")
+function Base.show(io::IO, ℓ::LogLikelihood{D}) where {D}
+    print(io, "logpdf(", _shortname(D), "(")
+    join(io, ℓ.args, ", ")
     print(io, "), ", ℓ.value, ")")
 end
 
-function (ℓ::LogLikelihood{N, D, T, Args})(θ) where {N, D, T, Args}
-    return logpdf(D(_insert(ℓ.args, Val(N), θ)...), ℓ.value)
+function (ℓ::LogLikelihood)(θ) where {D}
+    return logpdf(D((arg(θ) for arg in ℓ.args)...), ℓ.value)
 end
 
 
-struct Conditional{D<:Distribution, B}
-    var_dist::D
-    blanket_dists::B
+function conts(graph)
+    c = SortedDict{Reference, Cont}()
+    
+    function convertarg(arg)
+        if arg isa Reference
+            cont = c[arg]
+            if cont isa LogLikelihood
+                Variable(graph[arg].vn)
+            else
+                cont
+            end
+        else
+            Fixed(arg)
+        end
+    end
+    
+    for (ref, stmt) in graph
+        if stmt isa Union{Assumption, Observation}
+            dist_call, value = stmt.dist, tovalue(graph, getvalue(stmt))
+            if dist_call isa Call
+                args = convertarg.(dist_call.args)
+                D = typeof(getvalue(dist_call))
+                @show typeof(args)
+                c[ref] = LogLikelihood(D, value, args)
+            elseif dist_call isa Constant
+                dist = getvalue(dist_call)
+                c[ref] = LogLikelihood(typeof(dist), value, params(dist))
+            end
+        elseif stmt isa Call
+            @show "t" => stmt
+            f, args = stmt.f, convertarg.(stmt.args)
+            c[ref] = Transformation(f, args)
+        elseif stmt isa Constant
+            c[ref] = Fixed(getvalue(stmt))
+        end
+    end
+
+    return c
 end
-
-function (cond::Conditional{V})(blanket) where {V}
-    blanket_logp = sum(cond.blanket_dists[b](blanket[b]) for b in keys(cond.blanket_dists))
-    return conditioned(cond.dist, blanket_logp)
-end
-
-
-components(vn, indices) = [VarName(getsym(vn), ix) for ix in indices]
 
 
 
