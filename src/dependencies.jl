@@ -294,7 +294,7 @@ getvn(::Constant) = nothing
 Return all `Assumption`s (potentially with indexing) that the tilde `stmt` depends on directly.
 """
 function parent_variables(graph, stmt::Tilde)
-    result = Set{Tuple{Assumption, Union{Tuple, Nothing}}}()
+    result = Set{Tuple{Assumption, Tuple}}()
     parent_variables!(result, graph, stmt.dist)
     stmt.value isa Reference && parent_variables!(result, graph, stmt.value)
     return result
@@ -326,7 +326,7 @@ function parent_variables!(result, graph, stmt::Assumption)
     # direct dependency:
     # ⟨31⟩ = w ~ Dirichlet()
     # ⟨42⟩ = z[1] ~ DiscreteNonParametric(⟨31⟩)
-    return push!(result, (stmt, nothing))
+    return push!(result, (stmt, ()))
 end
 function parent_variables!(result, graph, stmt::Observation)
     @warn "The parent statement is an observation ($(stmt)), something weird has happened..."
