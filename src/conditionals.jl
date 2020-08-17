@@ -6,6 +6,46 @@ using DynamicPPL
 export conditional_dists
 
 
+"""
+    abstract type Cont end
+
+`Cont` is an analytic representation of joint distribution represented in a `Graph` -- a function
+from a dictionary of variable assignments to a log probability. 
+
+ Each `Call` gets associated with a `Transformation`, and each tilde statement with a `LogLikelihood`.  
+Those are both callable with a dict argument.  SSA variables get transformed to either a `Fixed` value 
+for constants, a `Variable` for assignments of random variables, or the `Cont` they come from.
+
+Something like this:
+
+```
+⟨28⟩ => logpdf(Normal(), θ[μ[2]])
+⟨29⟩ => getindex(⟨8⟩(array initializer with undefined values, 2), getfield(iterate(Colon()(1, 2), getfield(iterate(Colon()(1, 2)), 2)), 1))
+⟨31⟩ => logpdf(Dirichlet(2, 1.0), θ[w])
+⟨32⟩ => Array{Int64,1}(array initializer with undefined values, length([0.1, -0.05, 1.0]))
+⟨33⟩ => Colon()(1, length([0.1, -0.05, 1.0]))
+⟨34⟩ => iterate(Colon()(1, length([0.1, -0.05, 1.0])))
+⟨36⟩ => getfield(iterate(Colon()(1, length([0.1, -0.05, 1.0]))), 1)
+⟨37⟩ => getfield(iterate(Colon()(1, length([0.1, -0.05, 1.0]))), 2)
+⟨42⟩ => logpdf(DiscreteNonParametric(θ[w]), θ[z[1]])
+```
+
+for 
+
+```
+⟨28⟩ = μ[2] ~ Normal() → -1.2107564627453093
+⟨29⟩ = μ[2] = getindex(⟨9⟩, ⟨23⟩) → -1.2107564627453093
+⟨31⟩ = w ~ Dirichlet(⟨4⟩, 1.0) → [0.7023731332410442, 0.2976268667589558]
+⟨32⟩ = Array{Int64,1}(array initializer with undefined values, ⟨7⟩) → [139815315085536, 139815315085552, 139815315085568]
+⟨33⟩ = Colon()(1, ⟨7⟩) → 1:3
+⟨34⟩ = iterate(⟨33⟩) → (1, 1)
+⟨36⟩ = getfield(⟨34⟩, 1) → 1
+⟨37⟩ = getfield(⟨34⟩, 2) → 1
+⟨42⟩ = z[1] ~ DiscreteNonParametric(⟨31⟩) → 2
+```
+
+where `θ` stands for the environment of random variable assignments.
+"""
 abstract type Cont end
 
 
@@ -38,12 +78,13 @@ end
 (t::Transformation)(θ) = t.f((arg(θ) for arg in t.args)...)
 
 
-struct LogLikelihood{D<:Distribution, TVal, TArgs<:Tuple} <: Cont
+struct LogLikelihood{TDist<:Distribution, TVal, TArgs<:Tuple} <: Cont
+    dist::TDist
     value::TVal
     args::TArgs
     
-    function LogLikelihood(::Type{D}, value, args::NTuple{N, Cont}) where {D<:Distribution, N}
-        return new{D, typeof(value), typeof(args)}(value, args)
+    function LogLikelihood(dist::D, value, args::NTuple{N, Cont}) where {D<:Distribution, N}
+        return new{D, typeof(value), typeof(args)}(dist,value, args)
     end
 end
 
@@ -53,9 +94,7 @@ function Base.show(io::IO, ℓ::LogLikelihood{D}) where {D}
     print(io, "), ", ℓ.value, ")")
 end
 
-function (ℓ::LogLikelihood)(θ) where {D}
-    return logpdf(D((arg(θ) for arg in ℓ.args)...), ℓ.value)
-end
+(ℓ::LogLikelihood{D})(θ) where {D} = logpdf(D((arg(θ) for arg in ℓ.args)...), ℓ.value(θ))
 
 
 function continuations(graph)
@@ -80,13 +119,11 @@ function continuations(graph)
     for (ref, stmt) in graph
         if stmt isa Union{Assumption, Observation}
             dist_call = stmt.dist
+            dist = getvalue(dist_call)
 
             if dist_call isa Call
                 args = convertarg.(dist_call.args)
-                D = typeof(getvalue(dist_call))
             elseif dist_call isa Constant
-                dist = getvalue(dist_call)
-                D = typeof(dist)
                 args = Fixed.(params(dist))
             end
 
@@ -95,7 +132,9 @@ function continuations(graph)
             else
                 value = Variable(stmt.vn)
             end
-            c[ref] = LogLikelihood(D, value, args)
+            
+            c[ref] = LogLikelihood(dist, value, args)
+            
         # elseif stmt isa Call{<:Tuple, typeof(getindex)}
         #     vn, compound_ref = stmt.definition
         #     ix = getindexing(vn)[1]
@@ -115,192 +154,142 @@ function continuations(graph)
 end
 
 
-Base.getindex(x::Union{Number, AbstractArray}, vn::VarName) = foldl((x, i) -> getindex(x, i...),
-                                                                    DynamicPPL.getindexing(vn),
-                                                                    init=x)
-
 function conditionals(graph, varname)
     # There can be multiple tildes for one `varname`, e.g., `x[1], x[2]` both subsumed by `x`.
     # dists = Dict{VarName, Distribution}()
     # blankets = DefaultDict{Tuple{VarName, Union{Nothing, Tuple}}, Float64}(0.0)
+    dists = Dict{VarName, LogLikelihood}()
     blankets = DefaultDict{VarName, Vector{Pair{Tuple, LogLikelihood}}}(
         Vector{Pair{Tuple, LogLikelihood}})
+    θ = Dict{VarName, Any}()
     conts = continuations(graph)
     
     for (ref, stmt) in graph
         if stmt isa Union{Assumption, Observation} && !isnothing(stmt.vn)
-            vn, dist, value = stmt.vn, getvalue(stmt.dist), tovalue(graph, getvalue(stmt))
-
+            θ[stmt.vn] = getvalue(stmt)
+            
             # record distribution of this tilde if it matches the searched vn
-            if DynamicPPL.subsumes(varname, vn)
-                push!(blankets[vn], DynamicPPL.getindexing(vn) => conts[ref])
+            if DynamicPPL.subsumes(varname, stmt.vn)
+                dists[stmt.vn] = conts[ref]
             end
             
             # add likelihood to all parents of which this RV is in the blanket
             for (p, ix) in parent_variables(graph, stmt)
-                if any(DynamicPPL.subsumes(r, p.vn) for r in keys(blankets))
-                    push!(blankets[p.vn], ix => conts[ref])
-                    # @show stmt => (p, ix)
-                    # ℓ = logpdf(dist, value)
-                    # @show dist, value
-                    # @show vn
-                    # @show p.vn => ℓ
-                    
-                    # x, nothing ~> x; x, (1,) ~> x[1]
-                    # @show (p.vn, ix) => ℓ
-                    # blankets[(p.vn, ix)] += ℓ
-
-                    # println("Found variable $vn being dependent on ($(p.vn), $ix) " *
-                            # "with likelihood $ℓ and value $value")
+                for vn in keys(dists)
+                    if DynamicPPL.subsumes(vn, p.vn)
+                        push!(blankets[vn], ix => conts[ref])
+                        break
+                    end
                 end
             end
-
-
+            
+        elseif stmt isa Call && !isnothing(stmt.definition)
+            # remember all intermediate RV values (including redundant `getindex` calls,
+            # for simplicity)
+            vn, _ = stmt.definition
+            θ[vn] = getvalue(stmt)
         end
     end
 
-    # result = Dict{VarName, Distribution}()
-    
-    # for (vn, d) in dists
-    #     result[vn] = d
-        
-    #     for ((b, ix), ℓ) in blankets
-    #         if DynamicPPL.subsumes(vn, b)
-    #             # @show vn => (b, ix)
-    #             if !isnothing(ix)
-    #                 @assert DynamicPPL.subsumes(DynamicPPL.getindexing(vn), ix)
-    #                 push!(result, vn => conditioned(d, ℓ, ix...))
-    #                 # println("Update $vn from ($b, $ix) with $ℓ")
-    #             else
-    #                 push!(result, vn => conditioned(d, ℓ))
-    #             end
-    #         end
-    #     end
-    # end
-
-    blankets
-    
-    # return result
+    return Dict{VarName, Distribution}(
+        vn => GibbsConditional(vn, d, blankets[vn], θ) for (vn, d) in dists)
 end
 
 
-# """
-#     conditional_dists(graph, varname)
-
-# Derive a dictionary of Gibbs conditionals for all assumption statements in `graph` that are subsumed
-# by `varname`.
-# """
-# function conditional_dists(graph, varname)
-#     # There can be multiple tildes for one `varname`, e.g., `x[1], x[2]` both subsumed by `x`.
-#     dists = Dict{VarName, Distribution}()
-#     blankets = DefaultDict{Tuple{VarName, Union{Nothing, Tuple}}, Float64}(0.0)
+struct GibbsConditional{
+    F<:VariateForm,
+    S<:ValueSupport,
+    TCond<:Distribution{F, S},
+    TBase,
+    TBlanket,
+    TValues} <: Distribution{F, S}
     
-#     for (ref, stmt) in graph
-#         if stmt isa Union{Assumption, Observation} && !isnothing(stmt.vn)
-#             vn, dist, value = stmt.vn, getvalue(stmt.dist), tovalue(graph, getvalue(stmt))
+    conditional::TCond
+    base::TBase
+    blanket::TBlanket
+    θ::TValues
+end
 
-#             # add likelihood to all parents of which this RV is in the blanket
-#             for (p, ix) in parent_variables(graph, stmt)
-#                 if any(DynamicPPL.subsumes(r, p.vn) for r in keys(dists))
-#                     # @show stmt => (p, ix)
-#                     ℓ = logpdf(dist, value)
-#                     # @show dist, value
-#                     # @show vn
-#                     # @show p.vn => ℓ
-                    
-#                     # x, nothing ~> x; x, (1,) ~> x[1]
-#                     # @show (p.vn, ix) => ℓ
-#                     blankets[(p.vn, ix)] += ℓ
+function Base.show(io::IO, c::GibbsConditional)
+    print(io, c.base)
+    if !isempty(c.blanket)
+        print(io, " + ")
+        join(io, (β for (ix, β) in c.blanket), " + ")
+    end
+end
 
-#                     # println("Found variable $vn being dependent on ($(p.vn), $ix) " *
-#                             # "with likelihood $ℓ and value $value")
-#                 end
-#             end
+GibbsConditional(vn, ℓ, blanket, θ) =
+    GibbsConditional(conditioned(vn, ℓ, blanket, θ), ℓ, blanket, θ)
 
-#             # record distribution of this tilde if it matches the searched vn
-#             if DynamicPPL.subsumes(varname, vn)
-#                 dists[vn] = dist
-#                 # @show vn => dist
-#                 # println("Found variable $vn with value $value")
-#             end
-#         end
-#     end
-
-#     result = Dict{VarName, Distribution}()
-    
-#     for (vn, d) in dists
-#         result[vn] = d
-        
-#         for ((b, ix), ℓ) in blankets
-#             if DynamicPPL.subsumes(vn, b)
-#                 # @show vn => (b, ix)
-#                 if !isnothing(ix)
-#                     @assert DynamicPPL.subsumes(DynamicPPL.getindexing(vn), ix)
-#                     push!(result, vn => conditioned(d, ℓ, ix...))
-#                     # println("Update $vn from ($b, $ix) with $ℓ")
-#                 else
-#                     push!(result, vn => conditioned(d, ℓ))
-#                 end
-#             end
-#         end
-#     end
-    
-#     return result
-# end
-
-
-
-DynamicPPL.getlogp(tilde::Union{Assumption, Observation}) = logpdf(tilde.dist, tilde.value)
-
-
+Distributions.rand(rng::AbstractRNG, c::GibbsConditional) = rand(rng, c.conditional)
+Distributions.logpdf(c::GibbsConditional, x) = logpdf(c.conditional, x)
 
 """
-    conditioned(d0, blanket_logps)
+    conditioned(vn, ℓ, blanket, θ)
 
-Return an array of distributions for the RV with distribution `d0` within a Markov blanket.
+Return the conditional distribution of `vn` given the values fixed in `θ`, calculated by 
+normalization over the likelihood `ℓ` and Markov blanket likelihoods `blanket`.
 
 Constructed as
 
-    P[X = x | conditioned] ∝ P[X = x | parents(X)] * P[children(X) | parents(children(X))]
+    P[X = x | θ] ∝ P[X = x | parents(X)] * P[children(X) | parents(children(X))]
 
-equivalent to
+equivalent to a distribution `D` such that
 
-    logpdf(D, x) = logpdf(d0, x) + ∑ blanket_logps
+    logpdf(D, x) = ℓ(x | θ) + ∑ blanketᵢ(x | θ)
 
-where the factors `blanket_logps` are the log probabilities in the Markov blanket.
+where the factors `blanketᵢ` are the log probabilities in the Markov blanket.
 
-The result is an array to allow to condition `Product` distributions.
+This only works on discrete distributions, either scalar ones (resulting in a 
+`DiscreteNonparametric`) or products of them (resulting in a `Product` of `DiscreteNonparametric`).
 """
-function conditioned(d0::DiscreteUnivariateDistribution, blanket_logp::Real)
+function conditioned(vn::VarName, ℓ::LogLikelihood{<:DiscreteUnivariateDistribution}, blanket, θ)
     local Ω
 
     try
-        Ω = support(d0)
+        Ω = support(ℓ.dist)
     catch
-        throw(ArgumentError("Unable to get the support of $d0 (probably infinite)"))
+        throw(ArgumentError("Unable to get the support of $(ℓ.dist) (probably infinite)!"))
     end
-    
-    logtable = logpdf.(d0, Ω) .+ blanket_logp
+
+    θs_on_support = fixvalues(vn, θ, Ω)
+    ℓ_base = ℓ(θ)
+    logtable = [ℓ_base + reduce(+, (β(θ) for (ix, β) in blanket), init=zero(ℓ_base)) for θ in θs_on_support]
     # @show logpdf.(d0, Ω)
     # @show (softmax(logtable))
-    return DiscreteNonParametric(Ω, softmax!(logtable))
+    conditional = DiscreteNonParametric(Ω, softmax!(logtable))
+    return conditional
 end
-
-conditioned(d0::DiscreteUnivariateDistribution, blanket_logp, ix) = conditioned(d0, blanket_logp)
 
 # `Product`s can be treated as an array of iid variables
-conditioned(d0::Product, blanket_logp) = Product(conditioned.(d0.v, blanket_logp))
-function conditioned(d0::Product, blanket_logp, ix)
-    # apply blanket accumulation to a subset of the product distribution
+# function conditioned(vn::VarName, ℓ::LogLikelihood{<:Product}, blanket, θ)
+    # return Product([conditioned]conditioned.(ℓ.dist.v, blanket, θ))
+# end
 
-    ix_cartesian = CartesianIndex(ix)
-    p = Product([(ix_cartesian == i) ? conditioned(d, blanket_logp) : d
-                 for (i, d) in pairs(IndexCartesian(), d0.v)])
-    return p
+conditioned(vn::VarName, ℓ::LogLikelihood, blanket, θ) =
+    throw(ArgumentError("Cannot condition a non-discrete or non-univariate distribution $(ℓ.dist)."))
+
+
+"""Produce `|Ω|` copies of `θ` with the `vn` entries fixed to the values in the support `Ω`."""
+function fixvalues(vn, θ, Ω)
+    # foldl((x, i) -> getindex(x, i...),
+          # DynamicPPL.getindexing(vn),
+    # init=x)
+    result = [copy(θ) for ω in Ω]
+    for i in eachindex(result)
+        θ′ = result[i]
+        for variable in keys(θ′)
+            if DynamicPPL.subsumes(vn, variable)
+                updated = copy(θ′[variable])
+                
+                θ′[variable] = updated
+            end
+        end
+    end
+
+    return result
 end
 
-conditioned(d0::Distribution, blanket_logps) =
-    throw(ArgumentError("Cannot condition a non-discrete or non-univariate distribution $d0."))
 
 
 # from https://github.com/JuliaStats/StatsFuns.jl/blob/master/src/basicfuns.jl#L259
