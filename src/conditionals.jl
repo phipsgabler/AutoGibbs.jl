@@ -161,7 +161,6 @@ function conditionals(graph, varname)
     dists = Dict{VarName, LogLikelihood}()
     blankets = DefaultDict{VarName, Vector{Pair{Tuple, LogLikelihood}}}(
         Vector{Pair{Tuple, LogLikelihood}})
-    θ = Dict{VarName, Any}()
     conts = continuations(graph)
     
     for (ref, stmt) in graph
@@ -182,8 +181,17 @@ function conditionals(graph, varname)
                     end
                 end
             end
-            
-        elseif stmt isa Call && !isnothing(stmt.definition)
+        end
+    end
+
+    return Dict{VarName, Distribution}(
+        vn => GibbsConditional(vn, d, blankets[vn]) for (vn, d) in dists)
+end
+
+function sampled_values(graph)
+    θ = Dict{VarName, Any}()
+    for (ref, stmt) in graph
+        if stmt isa Call && !isnothing(stmt.definition)
             # remember all intermediate RV values (including redundant `getindex` calls,
             # for simplicity)
             vn, _ = stmt.definition
@@ -191,23 +199,21 @@ function conditionals(graph, varname)
         end
     end
 
-    return Dict{VarName, Distribution}(
-        vn => GibbsConditional(vn, d, blankets[vn], θ) for (vn, d) in dists)
+    return θ
 end
 
 
 struct GibbsConditional{
-    F<:VariateForm,
-    S<:ValueSupport,
-    TCond<:Distribution{F, S},
-    TBase,
-    TBlanket,
-    TValues} <: Distribution{F, S}
-    
-    conditional::TCond
+    TBaseDist<:Distribution
+    TVar<:VarName,
+    TBase<:Likelihood{<:TBaseDist},
+    TBlanket,}
+
+    vn::TVar
     base::TBase
     blanket::TBlanket
-    θ::TValues
+
+    # TODO: cache support here; catch invalid base distributions
 end
 
 function Base.show(io::IO, c::GibbsConditional)
@@ -218,11 +224,6 @@ function Base.show(io::IO, c::GibbsConditional)
     end
 end
 
-GibbsConditional(vn, ℓ, blanket, θ) =
-    GibbsConditional(conditioned(vn, ℓ, blanket, θ), ℓ, blanket, θ)
-
-Distributions.rand(rng::AbstractRNG, c::GibbsConditional) = rand(rng, c.conditional)
-Distributions.logpdf(c::GibbsConditional, x) = logpdf(c.conditional, x)
 
 """
     conditioned(vn, ℓ, blanket, θ)
@@ -243,18 +244,20 @@ where the factors `blanketᵢ` are the log probabilities in the Markov blanket.
 This only works on discrete distributions, either scalar ones (resulting in a 
 `DiscreteNonparametric`) or products of them (resulting in a `Product` of `DiscreteNonparametric`).
 """
-function conditioned(vn::VarName, ℓ::LogLikelihood{<:DiscreteUnivariateDistribution}, blanket, θ)
+# function conditioned(vn::VarName, ℓ::LogLikelihood{<:DiscreteUnivariateDistribution}, blanket, θ)
+function (c::GibbsConditional{<:DiscreteUnivariateDistribution})(θ)
     local Ω
 
     try
-        Ω = support(ℓ.dist)
+        Ω = support(c.base.dist)
     catch
-        throw(ArgumentError("Unable to get the support of $(ℓ.dist) (probably infinite)!"))
+        throw(ArgumentError("Unable to get the support of $(c.base.dist) (probably infinite)!"))
     end
 
-    θs_on_support = fixvalues(vn, θ, Ω)
-    ℓ_base = ℓ(θ)
-    logtable = [ℓ_base + reduce(+, (β(θ) for (ix, β) in blanket), init=zero(ℓ_base)) for θ in θs_on_support]
+    θs_on_support = fixvalues(c.vn, θ, Ω)
+    ℓ_base = c.base(θ)
+    logtable = [ℓ_base + reduce(+, (β(θ) for (ix, β) in c.blanket), init=zero(ℓ_base))
+                for θ in θs_on_support]
     # @show logpdf.(d0, Ω)
     # @show (softmax(logtable))
     conditional = DiscreteNonParametric(Ω, softmax!(logtable))
@@ -262,11 +265,11 @@ function conditioned(vn::VarName, ℓ::LogLikelihood{<:DiscreteUnivariateDistrib
 end
 
 # `Product`s can be treated as an array of iid variables
-# function conditioned(vn::VarName, ℓ::LogLikelihood{<:Product}, blanket, θ)
+# function (c::GibbsConditional{<:Product})(θ)
     # return Product([conditioned]conditioned.(ℓ.dist.v, blanket, θ))
 # end
 
-conditioned(vn::VarName, ℓ::LogLikelihood, blanket, θ) =
+(c::GibbsConditional)(θ) =
     throw(ArgumentError("Cannot condition a non-discrete or non-univariate distribution $(ℓ.dist)."))
 
 
