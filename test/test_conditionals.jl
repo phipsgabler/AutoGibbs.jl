@@ -1,6 +1,11 @@
 @model function bernoulli_mixture(x)
+    # Mixture prior.
     w ~ Dirichlet(2, 1.0)
+
+    # Latent probability.
     p ~ DiscreteNonParametric([0.3, 0.7], w)
+
+    # Observation.
     x ~ Bernoulli(p)
 end
 
@@ -18,23 +23,30 @@ let w = graph_bernoulli[4].value,
     Z = p1 + p2
 
     # 𝓅(p | w, x) ∝ 𝓅(p | w) * 𝓅(x | p)
-    D_cond = DiscreteNonParametric([0.3, 0.7], [p1 / Z, p2 / Z])
-    @info D_cond
+    analytic_conditional = DiscreteNonParametric([0.3, 0.7], [p1 / Z, p2 / Z])
+    @info analytic_conditional
+    θ = AutoGibbs.sampled_values(graph_bernoulli)
     
-    local conditional
-    @test_nothrow conditional = conditionals(graph_bernoulli, @varname(p))[@varname(p)]
-    # @test issimilar(conditional, D_cond)
+    local calculated_conditional
+    @test_nothrow calculated_conditional = conditionals(graph_bernoulli, @varname(p))[@varname(p)]
+    @test issimilar(calculated_conditional(θ), analytic_conditional)
 end
 
 
 @model function gmm(x, K)
     N = length(x)
-
+    
+    # Cluster centers.
     μ ~ filldist(Normal(), K)
+
+    # Cluster association prior.
     w ~ Dirichlet(K, 1.0)
+
+    # Cluster assignments.
     z ~ filldist(Categorical(w), N)
 
-    for n in eachindex(x)
+    # Observations.
+    for n = 1:N
         x[n] ~ Normal(μ[z[n]], 1.0)
     end
 end
@@ -54,26 +66,31 @@ let μ = graph_gmm[7].value,
     (Z1, Z2, Z3) = map(+, p_1, p_2)
 
     # 𝓅(zᵢ | μ, w, x, z₋ᵢ) ∝ 𝓅(zᵢ | w) * 𝓅(xᵢ | zᵢ, μ)
-    D_conds = Dict(@varname(z[1]) => Categorical([p_1[1], p_2[1]] ./ Z1),
-                   @varname(z[2]) => Categorical([p_1[2], p_2[2]] ./ Z2),
-                   @varname(z[2]) => Categorical([p_1[3], p_2[3]] ./ Z3))
-    @info D_conds
+    analytic_conditionals = [@varname(z[1]) => Categorical([p_1[1], p_2[1]] ./ Z1),
+                             @varname(z[2]) => Categorical([p_1[2], p_2[2]] ./ Z2),
+                             @varname(z[3]) => Categorical([p_1[3], p_2[3]] ./ Z3)]
+    @info analytic_conditionals
+    θ = AutoGibbs.sampled_values(graph_gmm)
 
-    local conditional
-    @test_nothrow conditional = conditionals(graph_gmm, @varname(z))[@varname(z)]
-    # @test issimilar(conditional, Product(collect(values(D_conds))))
+    local calculated_conditional
+    @test_nothrow calculated_conditional = conditionals(graph_gmm, @varname(z))[@varname(z)]
+    @test issimilar(calculated_conditional(θ), Product([D for (vn, D) in analytic_conditional]))
 end
 
 
 @model function gmm_loopy(x, K, ::Type{T}=Float64) where {T<:Real}
     N = length(x)
 
+    # Cluster centers.
     μ = Vector{T}(undef, K)
     for k = 1:K
         μ[k] ~ Normal()
     end
-    
+
+    # Cluster association prior.
     w ~ Dirichlet(K, 1.0)
+
+    # Cluster assignments & observations.
     z = Vector{Int}(undef, N)
     for n = 1:N
         z[n] ~ Categorical(w)
@@ -96,16 +113,17 @@ let μ = [graph_gmm_loopy[19].value, graph_gmm_loopy[28].value],
     (Z1, Z2, Z3) = map(+, p_1, p_2)
 
     # 𝓅(zᵢ | μ, w, x, z₋ᵢ) ∝ 𝓅(zᵢ | w) * 𝓅(xᵢ | zᵢ, μ)
-    D_conds = Dict(@varname(z[1]) => Categorical([p_1[1], p_2[1]] ./ Z1),
-                   @varname(z[2]) => Categorical([p_1[2], p_2[2]] ./ Z2),
-                   @varname(z[3]) => Categorical([p_1[3], p_2[3]] ./ Z3))
-    @info D_conds
-
-    local conds
-    @test_nothrow conds = conditionals(graph_gmm_loopy, @varname(z))
-    for (vn, conditional) in conds
-        # @show probs(conditional), probs(D_conds[vn])
-        # @test issimilar(conditional, D_conds[vn])
+    analytic_conditionals = [@varname(z[1]) => Categorical([p_1[1], p_2[1]] ./ Z1),
+                             @varname(z[2]) => Categorical([p_1[2], p_2[2]] ./ Z2),
+                             @varname(z[3]) => Categorical([p_1[3], p_2[3]] ./ Z3)]
+    @info analytic_conditionals
+    θ = AutoGibbs.sampled_values(graph_gmm_loopy)
+    
+    local calculated_conditionals
+    @test_nothrow calculated_conditionals = conditionals(graph_gmm_loopy, @varname(z))
+    for (vn, calculated_conditional) in calculated_conditionals
+        # @show probs(calculated_conditionals(θ)), probs(analytic_conditionals[vn])
+        @test issimilar(calculated_conditionals(θ), analytic_conditionals[vn])
     end
 end 
 
@@ -114,12 +132,16 @@ end
 @model function gmm_shifted(x, K, ::Type{T}=Float64) where {T<:Real}
     N = length(x)
 
+    # Cluster centers.
     μ = Vector{T}(undef, K)
     for k = 1:K
         μ[k] ~ Normal()
     end
-    
+
+    # Cluster association prior.
     w ~ Dirichlet(K, 1.0)
+
+    # Cluster assignments & observations.
     z = Vector{Int}(undef, N)
     for n = 1:N
         z[n] ~ Categorical(w)
@@ -136,7 +158,6 @@ graph_gmm_shifted = trackdependencies(model_gmm_shifted)
 
 # K clusters, each one around i for i = 1:K with variance 0.5
 @model function hmm(x, K, ::Type{T}=Float64) where {T<:Real}
-    # Get observation length.
     N = length(x)
 
     # State sequence.
@@ -164,8 +185,6 @@ graph_gmm_shifted = trackdependencies(model_gmm_shifted)
         s[i] ~ Categorical(T[s[i-1]])
         x[i] ~ Normal(m[s[i]], 0.1)
     end
-
-    return x
 end
 
 model_hmm = hmm([1.1, 0.95, 2.2], 2)
@@ -194,40 +213,41 @@ let T = [graph_hmm[23].value, graph_hmm[38].value],
 
     # 𝓅(s₁ | T, m, s₋₁, x) ∝ 𝓅(s₁) 𝓅(s₂ | s₁, T) 𝓅(x₁ | s₁, m)
     #  𝓅(sᵢ | T, m, s₋ᵢ, x) ∝  𝓅(sᵢ | sᵢ₋₁, T) 𝓅(sᵢ₊₁ | sᵢ, T) 𝓅(xᵢ | sᵢ, m) (for i ≥ 2)
-    D_conds = Dict(@varname(s[1]) => Categorical([p_s1_1, p_s1_2] ./ Z_1),
-                   @varname(s[2]) => Categorical([p_s2_1, p_s2_2] ./ Z_2),
-                   @varname(s[3]) => Categorical([p_s3_1, p_s3_2] ./ Z_3))
-
-    local conds
-    @test_nothrow conds = conditionals(graph_hmm, @varname(s))
-    for (vn, conditional) in conds
-        # @show vn => probs(conditional), probs(D_conds[vn])
-        # @show issimilar(conditional, D_conds[vn])
-        # @test issimilar(conditional, D_conds[vn])
+    analytic_conditionals = [@varname(s[1]) => Categorical([p_s1_1, p_s1_2] ./ Z_1),
+                             @varname(s[2]) => Categorical([p_s2_1, p_s2_2] ./ Z_2),
+                             @varname(s[3]) => Categorical([p_s3_1, p_s3_2] ./ Z_3)]
+    θ = AutoGibbs.sampled_values(graph_hmm)
+    
+    local calculated_conditionals
+    @test_nothrow calculated_conditionals = conditionals(graph_hmm, @varname(s))
+    for (vn, calculated_conditional) in calculated_conditionals
+        # @show vn => probs(calculated_conditional), probs(analytic_conditionals[vn])
+        @test issimilar(calculated_conditional(θ), analytic_conditionals[vn])
     end
 end
 
+
+update_histogram!(nk, bin) = (nk[bin] += 1; nk)
 
 @model function imm(x)
     N = length(x)
 
     nk = zeros(Int, N)
-    G = ChineseRestaurantProcess(DirichletProcess(1.0), nk)
+    K = 0
+    z = zeros(Int, N)
     
-    z = zeros(Int, length(x))
-    for i in 1:N
-        z[i] ~ G
-        nk[z[i]] += 1
+    for n = 1:N
+        z[n] ~ ChineseRestaurantProcess(DirichletProcess(1.0), nk)
+        nk = update_histogram!(nk, z[n])
+        K = max(K, z[n])
     end
 
-    K = findlast(!iszero, nk)
     μ ~ filldist(Normal(), K)
 
-    for n in 1:N
+    for n = 1:N
         x[n] ~ Normal(μ[z[n]], 1.0)
     end
 end
-
 
 model_imm = imm([0.1, -0.05, 1.0])
 graph_imm = trackdependencies(model_imm)
@@ -237,19 +257,21 @@ graph_imm = trackdependencies(model_imm)
 
 
 @model function changepoint(y)
-    α = 1/mean(y)
-    λ1 ~ Exponential(α)
-    λ2 ~ Exponential(α)
-    τ ~ DiscreteUniform(1, length(y))
-    for idx in 1:length(y)
-        y[idx] ~ Poisson(τ > idx ? λ1 : λ2)
+    N = length(y)
+    α = 1 / mean(y)
+    λ₁ ~ Exponential(α)
+    λ₂ ~ Exponential(α)
+    τ ~ DiscreteUniform(1, N)
+    
+    for n in 1:N
+        y[n] ~ Poisson(τ > N ? λ₁ : λ₂)
     end
 end
 
 model_changepoint = changepoint([1.1, 0.9, 0.2])
 graph_changepoint = trackdependencies(model_changepoint)
-@testdependencies(model_changepoint, λ1, λ2, τ, y[1], y[2], y[3])
-@test_nothrow sample(model_changepoint, Gibbs(AutoConditional(:τ), MH(:λ1, :λ2)), 2)
+@testdependencies(model_changepoint, λ₁, λ₂, τ, y[1], y[2], y[3])
+@test_nothrow sample(model_changepoint, Gibbs(AutoConditional(:τ), MH(:λ₁, :λ₂)), 2)
 
 
 @model function reverse_deps(x)
