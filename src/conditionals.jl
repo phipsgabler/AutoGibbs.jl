@@ -3,18 +3,20 @@ using Distributions
 using DynamicPPL
 
 
-export conditional_dists
+export conditionals, sampled_values
 
 
 """
     abstract type Cont end
 
 `Cont` is an analytic representation of joint distribution represented in a `Graph` -- a function
-from a dictionary of variable assignments to a log probability. 
+from a dictionary of variable assignments to a log probability.  (For lack of a better term, I call
+these functions "continuations".)
 
- Each `Call` gets associated with a `Transformation`, and each tilde statement with a `LogLikelihood`.  
-Those are both callable with a dict argument.  SSA variables get transformed to either a `Fixed` value 
-for constants, a `Variable` for assignments of random variables, or the `Cont` they come from.
+Each `Call` gets associated with a `Transformation`, and each tilde statement with a
+`LogLikelihood`.  Those are both callable with a dict argument.  SSA variables get transformed to
+either a `Fixed` value for constants, a `Variable` for assignments of random variables, or the
+`Cont` they come from.
 
 Something like this:
 
@@ -61,7 +63,24 @@ struct Variable{TV<:VarName} <: ArgSpec
     vn::TV
 end
 Base.show(io::IO, arg::Variable) = print(io, "θ[", arg.vn, "]")
-(arg::Variable)(θ) = getindex(θ, arg.vn)
+(arg::Variable)(θ) = _lookup(θ, arg.vn)
+
+function _lookup(θ, varname)
+    if haskey(θ, varname)
+        return getindex(θ, varname)
+    else
+        # in the case of looking up x[i] with stored x,
+        # simply do it the slow way and check all elements
+        for (vn, value) in θ
+            if DynamicPPL.subsumes(vn, varname)
+                return foldl((x, i) -> getindex(x, i...),
+                             DynamicPPL.getindexing(varname),
+                             init=value)
+            end
+        end
+        throw(BoundsError(θ, varname))
+    end
+end
 
 
 struct Transformation{TF, N, TArgs<:NTuple{N, Cont}} <: Cont
@@ -76,6 +95,16 @@ function Base.show(io::IO, t::Transformation)
 end
 
 (t::Transformation)(θ) = t.f((arg(θ) for arg in t.args)...)
+
+function (t::Transformation{typeof(getindex)})(θ)
+    # intercept this to simplify getindex(x, i) to direct lookup of x[i]
+    array, indexing = first(t.args), Base.tail(t.args)
+    if array isa Variable
+        return _lookup(θ, VarName(array.vn, (Tuple(ix(θ) for ix in indexing),)))
+    else
+        return t.f((arg(θ) for arg in t.args)...)
+    end
+end
 
 
 struct LogLikelihood{TDist<:Distribution, TVal, TArgs<:Tuple} <: Cont
@@ -96,6 +125,12 @@ end
 
 (ℓ::LogLikelihood{D})(θ) where {D} = logpdf(D((arg(θ) for arg in ℓ.args)...), ℓ.value(θ))
 
+_init(::Tuple{}) = ()
+_init((x,)::Tuple{Any}) = ()
+_init(t::Tuple) = (first(t), _init(Base.tail(t))...)
+_last(::Tuple{}) = ()
+_last((x,)::Tuple{Any}) = x
+_last(t::Tuple) = _last(Base.tail(t))
 
 function continuations(graph)
     c = SortedDict{Reference, Cont}()
@@ -105,14 +140,25 @@ function continuations(graph)
             cont = c[arg]
             stmt = graph[arg]
             if cont isa LogLikelihood && !isnothing(stmt.vn)
-                Variable(stmt.vn)
-            elseif cont isa Transformation && !isnothing(stmt.definition)
-                Variable(stmt.definition[1])
+                return Variable(stmt.vn)
+            elseif cont isa Transformation{typeof(getindex)} && !isnothing(stmt.definition)
+                # two cases:
+                # - vn[ix] = getindex(<a>, ix) where <a> = vn ~ D: then we keep getindex(θ[a], ix)
+                #   (the whole array was sampled by the tilde)
+                # - vn[ix] = getindex(<a>, ix) where <scalar> = vn[ix] ~ D: then we rewrite to
+                # `getindex(θ[a], ix)`  (the array element was sampled individually)
+                # this truncation is realized by `_init`, which discards the last element of a tuple,
+                # and maps the empty tuple to itself.
+                location, ref = stmt.definition
+                array, ix = stmt.args[1], stmt.args[2:end]
+                parent_vn = VarName(graph[ref].vn, _init(DynamicPPL.getindexing(graph[ref].vn)))
+                parent_array = Variable(parent_vn)
+                return Transformation(getindex, (parent_array, convertarg.(ix)...))
             else
-                cont
+                return cont
             end
         else
-            Fixed(arg)
+            return Fixed(arg)
         end
     end
     
@@ -134,14 +180,6 @@ function continuations(graph)
             end
             
             c[ref] = LogLikelihood(dist, value, args)
-            
-        # elseif stmt isa Call{<:Tuple, typeof(getindex)}
-        #     vn, compound_ref = stmt.definition
-        #     ix = getindexing(vn)[1]
-        #     f, args = stmt.f, convertarg.(stmt.args)
-        #     dist = graph[compound_ref].v[ix...]
-        #     value = Variable(VarName(graph[compound_ref].vn, (ix,)))
-        #     c[ref] = LogLikelihood(typeof(dist), value, )
         elseif stmt isa Call
             f, args = stmt.f, convertarg.(stmt.args)
             c[ref] = Transformation(f, args)
@@ -165,8 +203,6 @@ function conditionals(graph, varname)
     
     for (ref, stmt) in graph
         if stmt isa Union{Assumption, Observation} && !isnothing(stmt.vn)
-            θ[stmt.vn] = getvalue(stmt)
-            
             # record distribution of this tilde if it matches the searched vn
             if DynamicPPL.subsumes(varname, stmt.vn)
                 dists[stmt.vn] = conts[ref]
@@ -184,14 +220,15 @@ function conditionals(graph, varname)
         end
     end
 
-    return Dict{VarName, Distribution}(
-        vn => GibbsConditional(vn, d, blankets[vn]) for (vn, d) in dists)
+    return Dict(vn => GibbsConditional(vn, d, blankets[vn]) for (vn, d) in dists)
 end
 
 function sampled_values(graph)
     θ = Dict{VarName, Any}()
     for (ref, stmt) in graph
-        if stmt isa Call && !isnothing(stmt.definition)
+        if stmt isa Union{Assumption, Observation} && !isnothing(stmt.vn)
+            θ[stmt.vn] = getvalue(stmt)
+        elseif stmt isa Call && !isnothing(stmt.definition)
             # remember all intermediate RV values (including redundant `getindex` calls,
             # for simplicity)
             vn, _ = stmt.definition
@@ -204,10 +241,9 @@ end
 
 
 struct GibbsConditional{
-    TBaseDist<:Distribution
     TVar<:VarName,
-    TBase<:Likelihood{<:TBaseDist},
-    TBlanket,}
+    TBase<:LogLikelihood,
+    TBlanket}
 
     vn::TVar
     base::TBase
@@ -226,10 +262,10 @@ end
 
 
 """
-    conditioned(vn, ℓ, blanket, θ)
+    (c::GibbsConditional)(θ)
 
 Return the conditional distribution of `vn` given the values fixed in `θ`, calculated by 
-normalization over the likelihood `ℓ` and Markov blanket likelihoods `blanket`.
+normalization over the conditional distribution of `vn` itlself and its Markov blanket.
 
 Constructed as
 
@@ -244,8 +280,8 @@ where the factors `blanketᵢ` are the log probabilities in the Markov blanket.
 This only works on discrete distributions, either scalar ones (resulting in a 
 `DiscreteNonparametric`) or products of them (resulting in a `Product` of `DiscreteNonparametric`).
 """
-# function conditioned(vn::VarName, ℓ::LogLikelihood{<:DiscreteUnivariateDistribution}, blanket, θ)
-function (c::GibbsConditional{<:DiscreteUnivariateDistribution})(θ)
+function (c::GibbsConditional{V, L})(θ) where {
+    V<:VarName, L<:LogLikelihood{<:DiscreteUnivariateDistribution}}
     local Ω
 
     try
@@ -265,27 +301,36 @@ function (c::GibbsConditional{<:DiscreteUnivariateDistribution})(θ)
 end
 
 # `Product`s can be treated as an array of iid variables
-# function (c::GibbsConditional{<:Product})(θ)
+# function (c::GibbsConditional{_, <:LogLikelihood{<:Product}})(θ)
     # return Product([conditioned]conditioned.(ℓ.dist.v, blanket, θ))
 # end
 
 (c::GibbsConditional)(θ) =
-    throw(ArgumentError("Cannot condition a non-discrete or non-univariate distribution $(ℓ.dist)."))
+    throw(ArgumentError("Cannot condition a non-discrete or non-univariate distribution $(c.base)."))
 
 
 """Produce `|Ω|` copies of `θ` with the `vn` entries fixed to the values in the support `Ω`."""
 function fixvalues(vn, θ, Ω)
-    # foldl((x, i) -> getindex(x, i...),
-          # DynamicPPL.getindexing(vn),
-    # init=x)
     result = [copy(θ) for ω in Ω]
-    for i in eachindex(result)
-        θ′ = result[i]
+    for (θ′, ω) in zip(result, Ω)
         for variable in keys(θ′)
             if DynamicPPL.subsumes(vn, variable)
-                updated = copy(θ′[variable])
-                
-                θ′[variable] = updated
+                indexing = DynamicPPL.getindexing(vn)
+                initial_indexing, last_index = _init(indexing), _last(indexing)
+                if initial_indexing == ()
+                    # actually updating a scalar
+                    θ′[variable] = ω
+                else
+                    # updating an array -- do "copy on write",
+                    # updated[i][j][k] = ω <=> setindex!(updated[i][j], ω, k)
+                    updated = copy(θ′[variable])
+                    init = foldl((x, i) -> getindex(x, i...),
+                             initial_indexing,
+                                 init=updated)
+                    @show init
+                    θ′[variable] = setindex!(updated, ω, last_index)
+                end
+                break
             end
         end
     end
