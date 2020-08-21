@@ -113,7 +113,7 @@ struct LogLikelihood{TDist<:Distribution, TVal, TArgs<:Tuple} <: Cont
     args::TArgs
     
     function LogLikelihood(dist::D, value, args::NTuple{N, Cont}) where {D<:Distribution, N}
-        return new{D, typeof(value), typeof(args)}(dist,value, args)
+        return new{D, typeof(value), typeof(args)}(dist, value, args)
     end
 end
 
