@@ -67,15 +67,19 @@ Base.show(io::IO, arg::Variable) = print(io, "θ[", arg.vn, "]")
 
 function _lookup(θ, varname)
     if haskey(θ, varname)
-        return getindex(θ, varname)
+        result = getindex(θ, varname)
+        # @show varname => result
+        return result
     else
         # in the case of looking up x[i] with stored x,
         # simply do it the slow way and check all elements
         for (vn, value) in θ
             if DynamicPPL.subsumes(vn, varname)
-                return foldl((x, i) -> getindex(x, i...),
-                             DynamicPPL.getindexing(varname),
-                             init=value)
+                result = foldl((x, i) -> getindex(x, i...),
+                               DynamicPPL.getindexing(varname),
+                               init=value)
+                # @show varname => result
+                return result
             end
         end
         throw(BoundsError(θ, varname))
@@ -287,9 +291,9 @@ function (c::GibbsConditional{V, L})(θ) where {
     end
 
     θs_on_support = fixvalues(c.vn, θ, Ω)
-    ℓ_base = c.base(θ)
-    logtable = [ℓ_base + reduce(+, (β(θ) for (ix, β) in c.blanket), init=zero(ℓ_base))
-                for θ in θs_on_support]
+    # @show θs_on_support
+    logtable = [c.base(θ′) + reduce(+, (β(θ′) for (ix, β) in c.blanket), init=0.0)
+                for θ′ in θs_on_support]
     # @show logpdf.(d0, Ω)
     # @show (softmax(logtable))
     conditional = DiscreteNonParametric(Ω, softmax!(logtable))
