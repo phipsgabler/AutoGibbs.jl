@@ -18,12 +18,12 @@ graph_bernoulli = trackdependencies(model_bernoulli)
 let w = graph_bernoulli[4].value,
     p = graph_bernoulli[6].value,
     x = graph_bernoulli[2].value,
-    p1 = w[1] * pdf(Bernoulli(p), x),
-    p2 = w[2] * pdf(Bernoulli(p), x),
-    Z = p1 + p2
+    p_1 = w[1] * pdf(Bernoulli(0.3), x),
+    p_2 = w[2] * pdf(Bernoulli(0.7), x),
+    Z = p_1 + p_2
 
     # 𝓅(p | w, x) ∝ 𝓅(p | w) * 𝓅(x | p)
-    analytic_conditional = DiscreteNonParametric([0.3, 0.7], [p1 / Z, p2 / Z])
+    analytic_conditional = DiscreteNonParametric([0.3, 0.7], [p_1 / Z, p_2 / Z])
     @info "Bernoulli analytic" analytic_conditional
     θ = AutoGibbs.sampled_values(graph_bernoulli)
     
@@ -109,30 +109,30 @@ graph_gmm_loopy = trackdependencies(model_gmm_loopy)
 @test_nothrow sample(model_gmm_loopy, Gibbs(AutoConditional(:z), MH(:w, :μ)), 2)
 @test_nothrow sample(model_gmm_loopy, Gibbs(AutoConditional(:z), HMC(0.01, 10, :w, :μ)), 2)
 
-# let μ = [graph_gmm_loopy[19].value, graph_gmm_loopy[28].value],
-#     w = graph_gmm_loopy[31].value,
-#     z = [graph_gmm_loopy[43].value, graph_gmm_loopy[62].value, graph_gmm_loopy[80].value],
-#     x = graph_gmm_loopy[2].value,
-#     p_1 = w[1] .* pdf.(Normal(w[1], 1.0), x),
-#     p_2 = w[2] .* pdf.(Normal(w[2], 1.0), x),
-#     (Z1, Z2, Z3) = map(+, p_1, p_2)
+let μ = [graph_gmm_loopy[19].value, graph_gmm_loopy[28].value],
+    w = graph_gmm_loopy[31].value,
+    z = [graph_gmm_loopy[43].value, graph_gmm_loopy[62].value, graph_gmm_loopy[80].value],
+    x = graph_gmm_loopy[2].value,
+    p_1 = w[1] .* pdf.(Normal(w[1], 1.0), x),
+    p_2 = w[2] .* pdf.(Normal(w[2], 1.0), x),
+    (Z1, Z2, Z3) = map(+, p_1, p_2)
 
-#     # 𝓅(zᵢ | μ, w, x, z₋ᵢ) ∝ 𝓅(zᵢ | w) * 𝓅(xᵢ | zᵢ, μ)
-#     analytic_conditionals = [@varname(z[1]) => Categorical([p_1[1], p_2[1]] ./ Z1),
-#                              @varname(z[2]) => Categorical([p_1[2], p_2[2]] ./ Z2),
-#                              @varname(z[3]) => Categorical([p_1[3], p_2[3]] ./ Z3)]
-#     @info "Loopy GMM analytic" analytic_conditionals
-#     θ = AutoGibbs.sampled_values(graph_gmm_loopy)
+    # 𝓅(zᵢ | μ, w, x, z₋ᵢ) ∝ 𝓅(zᵢ | w) * 𝓅(xᵢ | zᵢ, μ)
+    analytic_conditionals = [@varname(z[1]) => Categorical([p_1[1], p_2[1]] ./ Z1),
+                             @varname(z[2]) => Categorical([p_1[2], p_2[2]] ./ Z2),
+                             @varname(z[3]) => Categorical([p_1[3], p_2[3]] ./ Z3)]
+    @info "Loopy GMM analytic" analytic_conditionals
+    θ = AutoGibbs.sampled_values(graph_gmm_loopy)
     
-#     local calculated_conditionals
-#     @test_nothrow calculated_conditionals = conditionals(graph_gmm_loopy, @varname(z))
-#     @info "Loopy GMM calculated" Dict(vn => cond(θ) for (vn, cond) in calculated_conditionals)
+    local calculated_conditionals
+    @test_nothrow calculated_conditionals = conditionals(graph_gmm_loopy, @varname(z))
+    @info "Loopy GMM calculated" Dict(vn => cond(θ) for (vn, cond) in calculated_conditionals)
     
-#     for (vn, analytic_conditional) in analytic_conditionals
-#         # @show probs(calculated_conditionals[vn](θ)), probs(analytic_conditional)
-#         @test issimilar(calculated_conditionals[vn](θ), analytic_conditional)
-#     end
-# end 
+    for (vn, analytic_conditional) in analytic_conditionals
+        # @show probs(calculated_conditionals[vn](θ)), probs(analytic_conditional)
+        @test issimilar(calculated_conditionals[vn](θ), analytic_conditional)
+    end
+end 
 
 
 ###########################################################################
