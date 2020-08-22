@@ -173,11 +173,7 @@ function continuations(graph)
                 args = Fixed.(params(dist))
             end
 
-            if stmt isa Observation
-                value = convertarg(getvalue(stmt))
-            else
-                value = Variable(stmt.vn)
-            end
+            value = Variable(stmt.vn)
             
             c[ref] = LogLikelihood(dist, value, args)
         elseif stmt isa Call
@@ -227,12 +223,12 @@ function sampled_values(graph)
     θ = Dict{VarName, Any}()
     for (ref, stmt) in graph
         if stmt isa Union{Assumption, Observation} && !isnothing(stmt.vn)
-            θ[stmt.vn] = getvalue(stmt)
+            θ[stmt.vn] = tovalue(graph, getvalue(stmt))
         elseif stmt isa Call && !isnothing(stmt.definition)
             # remember all intermediate RV values (including redundant `getindex` calls,
             # for simplicity)
             vn, _ = stmt.definition
-            θ[vn] = getvalue(stmt)
+            θ[vn] = graph, getvalue(stmt)
         end
     end
 
