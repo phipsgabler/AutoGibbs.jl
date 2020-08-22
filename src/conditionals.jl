@@ -68,7 +68,6 @@ Base.show(io::IO, arg::Variable) = print(io, "θ[", arg.vn, "]")
 function _lookup(θ, varname)
     if haskey(θ, varname)
         result = getindex(θ, varname)
-        # @show varname => result
         return result
     else
         # in the case of looking up x[i] with stored x,
@@ -78,7 +77,6 @@ function _lookup(θ, varname)
                 result = foldl((x, i) -> getindex(x, i...),
                                DynamicPPL.getindexing(varname),
                                init=value)
-                # @show varname => result
                 return result
             end
         end
@@ -232,7 +230,7 @@ function sampled_values(graph)
             # remember all intermediate RV values (including redundant `getindex` calls,
             # for simplicity)
             vn, _ = stmt.definition
-            θ[vn] = graph, getvalue(stmt)
+            θ[vn] = getvalue(stmt)
         end
     end
 
@@ -325,10 +323,9 @@ function fixvalues(vn, θ, Ω)
                     # updated[i][j][k] = ω <=> setindex!(updated[i][j], ω, k)
                     updated = copy(θ′[variable])
                     init = foldl((x, i) -> getindex(x, i...),
-                             initial_indexing,
+                                 initial_indexing,
                                  init=updated)
-                    @show init
-                    θ′[variable] = setindex!(updated, ω, last_index)
+                    θ′[variable] = setindex!(init, ω, last_index)
                 end
                 break
             end
