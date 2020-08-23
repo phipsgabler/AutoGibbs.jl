@@ -131,7 +131,7 @@ end
 end
 
 _init(::Tuple{}) = ()
-_init((x,)::Tuple{Any}) = ()
+_init(t::Tuple{Any}) = ()
 _init(t::Tuple) = (first(t), _init(Base.tail(t))...)
 _last(::Tuple{}) = ()
 _last((x,)::Tuple{Any}) = x
@@ -316,11 +316,11 @@ function (c::GibbsConditional{V, L})(θ) where {
 
     # @show Ω
     conditionals = DiscreteNonParametric[]
-    θs_on_support = fixvalues(c.vn, θ, Ω)
+    θs_on_support = fixvalues.(Ref(c.vn), θ, Ref(Ω))
         # @show θs_on_support
         # logtable = [c.base(θ′) + reduce(+, (β(θ′) for (ix, β) in c.blanket), init=0.0)
         # for θ′ in θs_on_support]
-    ℓ = c.base(θs_on_support[1])
+    # ℓ = c.base(θs_on_support[1])
     # @show ℓ
         # @show logpdf.(d0, Ω)
         # @show (softmax(logtable))
@@ -337,29 +337,30 @@ end
 """Produce `|Ω|` copies of `θ` with the `vn` entries fixed to the values in the support `Ω`."""
 function fixvalues(vn, θ, Ω)
     result = [copy(θ) for _ in Ω]
-    indexing = DynamicPPL.getindexing(vn)
-    initial_indexing, last_index = _init(indexing), _last(indexing)
     
     for (θ′, ω) in zip(result, Ω)
         for variable in keys(θ′)
-            target_indexing, source_indexing = match_indexing(vn, variable)
-            source = foldl((x, i) -> getindex(x, i...),
-                           source_indexing,
-                           init=ω)
+            matched_indices = match_indexing(vn, variable)
             
-            if target_indexing == ()
-                # we update the complete thing
-                θ′[variable] = source
-            else
-                # updating part of an array -- do "copy on write",
-                # target[i][j][k] = source <=> setindex!(copy(target[i][j]), source, k)
-                target = θ′[variable]
-                target_initial_indexing = _init(target_indexing)
-                target_last_index = _last(target_indexing)
-                initial_target = foldl((x, i) -> getindex(x, i...),
-                                       target_initial_indexing,
-                                       init=target)
-                θ′[variable] = setindex!(copy(initial_target), source, target_last_index...)
+            if !isnothing(matched_indices)
+                source_indexing, target_indexing = matched_indices
+                source = foldl((x, i) -> getindex(x, i...),
+                               source_indexing,
+                               init=ω)
+                
+                if target_indexing == ()
+                    # we update the complete thing
+                    θ′[variable] = source
+                else
+                    # updating part of an array -- do "copy on write",
+                    # target[i][j][k] = source <=> setindex!(copy(target[i][j]), source, k)
+                    target = θ′[variable]
+                    initial_target = foldl((x, i) -> getindex(x, i...),
+                                           target_initial_indexing,
+                                           init=target)
+                    
+                    θ′[variable] = setindex!(copy(initial_target), source, target_last_index...)
+                end
             end
         end
     end
@@ -367,10 +368,14 @@ function fixvalues(vn, θ, Ω)
     return result
 end
 
-match_indexing(ix::Tuple{}, iy::Tuple{}) = () # (x, y) ~> x = y
-match_indexing(ix::Tuple, iy::Tuple{}) = ()   # (x[ix], y) ~> x[ix] = y
-match_indexing(ix::Tuple{}, iy::Tuple) = ()   # (x, y[ix]) ~> 
-
+function match_indexing(vn1::VarName, vn2::VarName)
+    if DynamicPPL.subsumes(vn1, vn2) || DynamicPPL.subsumes(vn2, vn1)
+        # just swap those :D
+        return (DynamicPPL.getindexing(vn2), DynamicPPL.getindexing(vn1))
+    else
+        return nothing
+    end
+end
 
 
 # from https://github.com/JuliaStats/StatsFuns.jl/blob/master/src/basicfuns.jl#L259
