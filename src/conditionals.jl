@@ -125,7 +125,10 @@ function Base.show(io::IO, ℓ::LogLikelihood{D}) where {D}
     print(io, "), ", ℓ.value, ")")
 end
 
-(ℓ::LogLikelihood{D})(θ) where {D} = logpdf(D((arg(θ) for arg in ℓ.args)...), ℓ.value(θ))
+(ℓ::LogLikelihood{D})(θ) where {D} = begin
+    @show ℓ.args
+    logpdf(D((arg(θ) for arg in ℓ.args)...), ℓ.value(θ))
+end
 
 _init(::Tuple{}) = ()
 _init((x,)::Tuple{Any}) = ()
@@ -133,6 +136,8 @@ _init(t::Tuple) = (first(t), _init(Base.tail(t))...)
 _last(::Tuple{}) = ()
 _last((x,)::Tuple{Any}) = x
 _last(t::Tuple) = _last(Base.tail(t))
+
+
 
 function continuations(graph)
     c = SortedDict{Reference, Cont}()
@@ -299,9 +304,31 @@ function (c::GibbsConditional{V, L})(θ) where {
 end
 
 # `Product`s can be treated as an array of iid variables
-# function (c::GibbsConditional{_, <:LogLikelihood{<:Product}})(θ)
-    # return Product([conditioned]conditioned.(ℓ.dist.v, blanket, θ))
-# end
+function (c::GibbsConditional{V, L})(θ) where {
+    V<:VarName, L<:LogLikelihood{<:Product}}
+    local Ω
+
+    try
+        Ω = Iterators.product(support.(c.base.dist.v)...)
+    catch
+        throw(ArgumentError("Unable to get the support of $(c.base.dist) (probably infinite)!"))
+    end
+
+    # @show Ω
+    conditionals = DiscreteNonParametric[]
+    θs_on_support = fixvalues(c.vn, θ, Ω)
+        # @show θs_on_support
+        # logtable = [c.base(θ′) + reduce(+, (β(θ′) for (ix, β) in c.blanket), init=0.0)
+        # for θ′ in θs_on_support]
+    ℓ = c.base(θs_on_support[1])
+    # @show ℓ
+        # @show logpdf.(d0, Ω)
+        # @show (softmax(logtable))
+        # push!(conditionals, DiscreteNonParametric(Ωs, softmax!(logtable)))
+    # end
+    # @show conditionals
+    return Product(conditionals)
+end
 
 (c::GibbsConditional)(θ) =
     throw(ArgumentError("Cannot condition a non-discrete or non-univariate distribution $(c.base)."))
@@ -309,31 +336,40 @@ end
 
 """Produce `|Ω|` copies of `θ` with the `vn` entries fixed to the values in the support `Ω`."""
 function fixvalues(vn, θ, Ω)
-    result = [copy(θ) for ω in Ω]
+    result = [copy(θ) for _ in Ω]
+    indexing = DynamicPPL.getindexing(vn)
+    initial_indexing, last_index = _init(indexing), _last(indexing)
+    
     for (θ′, ω) in zip(result, Ω)
         for variable in keys(θ′)
-            if DynamicPPL.subsumes(vn, variable)
-                indexing = DynamicPPL.getindexing(vn)
-                initial_indexing, last_index = _init(indexing), _last(indexing)
-                if initial_indexing == ()
-                    # actually updating a scalar
-                    θ′[variable] = ω
-                else
-                    # updating an array -- do "copy on write",
-                    # updated[i][j][k] = ω <=> setindex!(updated[i][j], ω, k)
-                    updated = copy(θ′[variable])
-                    init = foldl((x, i) -> getindex(x, i...),
-                                 initial_indexing,
-                                 init=updated)
-                    θ′[variable] = setindex!(init, ω, last_index)
-                end
-                break
+            target_indexing, source_indexing = match_indexing(vn, variable)
+            source = foldl((x, i) -> getindex(x, i...),
+                           source_indexing,
+                           init=ω)
+            
+            if target_indexing == ()
+                # we update the complete thing
+                θ′[variable] = source
+            else
+                # updating part of an array -- do "copy on write",
+                # target[i][j][k] = source <=> setindex!(copy(target[i][j]), source, k)
+                target = θ′[variable]
+                target_initial_indexing = _init(target_indexing)
+                target_last_index = _last(target_indexing)
+                initial_target = foldl((x, i) -> getindex(x, i...),
+                                       target_initial_indexing,
+                                       init=target)
+                θ′[variable] = setindex!(copy(initial_target), source, target_last_index...)
             end
         end
     end
 
     return result
 end
+
+match_indexing(ix::Tuple{}, iy::Tuple{}) = () # (x, y) ~> x = y
+match_indexing(ix::Tuple, iy::Tuple{}) = ()   # (x[ix], y) ~> x[ix] = y
+match_indexing(ix::Tuple{}, iy::Tuple) = ()   # (x, y[ix]) ~> 
 
 
 
