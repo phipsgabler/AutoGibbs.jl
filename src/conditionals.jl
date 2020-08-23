@@ -294,11 +294,8 @@ function (c::GibbsConditional{V, L})(θ) where {
     end
 
     θs_on_support = fixvalues(c.vn, θ, Ω)
-    # @show θs_on_support
     logtable = [c.base(θ′) + reduce(+, (β(θ′) for (ix, β) in c.blanket), init=0.0)
                 for θ′ in θs_on_support]
-    # @show logpdf.(d0, Ω)
-    # @show (softmax(logtable))
     conditional = DiscreteNonParametric(Ω, softmax!(logtable))
     return conditional
 end
@@ -316,15 +313,13 @@ function (c::GibbsConditional{V, L})(θ) where {
 
     # @show Ω
     conditionals = DiscreteNonParametric[]
-    θs_on_support = fixvalues.(Ref(c.vn), θ, Ref(Ω))
-        # @show θs_on_support
-        # logtable = [c.base(θ′) + reduce(+, (β(θ′) for (ix, β) in c.blanket), init=0.0)
-        # for θ′ in θs_on_support]
-    # ℓ = c.base(θs_on_support[1])
-    # @show ℓ
-        # @show logpdf.(d0, Ω)
-        # @show (softmax(logtable))
-        # push!(conditionals, DiscreteNonParametric(Ωs, softmax!(logtable)))
+    θs_on_support = fixvalues(c.vn, θ, Ω)
+    # @show θs_on_support
+    # logtable = [c.base(θ′) + reduce(+, (β(θ′) for (ix, β) in c.blanket), init=0.0)
+    ℓ = c.base(θs_on_support[1])
+    # @show logpdf.(d0, Ω)
+    # @show (softmax(logtable))
+    # push!(conditionals, DiscreteNonParametric(Ωs, softmax!(logtable)))
     # end
     # @show conditionals
     return Product(conditionals)
@@ -341,13 +336,11 @@ function fixvalues(vn, θ, Ω)
     for (θ′, ω) in zip(result, Ω)
         for variable in keys(θ′)
             matched_indices = match_indexing(vn, variable)
-            
             if !isnothing(matched_indices)
                 source_indexing, target_indexing = matched_indices
                 source = foldl((x, i) -> getindex(x, i...),
                                source_indexing,
                                init=ω)
-                
                 if target_indexing == ()
                     # we update the complete thing
                     θ′[variable] = source
@@ -358,7 +351,6 @@ function fixvalues(vn, θ, Ω)
                     initial_target = foldl((x, i) -> getindex(x, i...),
                                            target_initial_indexing,
                                            init=target)
-                    
                     θ′[variable] = setindex!(copy(initial_target), source, target_last_index...)
                 end
             end
@@ -370,7 +362,7 @@ end
 
 function match_indexing(vn1::VarName, vn2::VarName)
     if DynamicPPL.subsumes(vn1, vn2) || DynamicPPL.subsumes(vn2, vn1)
-        # just swap those :D
+        # just swap these :D
         return (DynamicPPL.getindexing(vn2), DynamicPPL.getindexing(vn1))
     else
         return nothing
