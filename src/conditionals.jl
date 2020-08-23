@@ -109,25 +109,25 @@ function (t::Transformation{typeof(getindex)})(θ)
 end
 
 
-struct LogLikelihood{TDist<:Distribution, TVal, TArgs<:Tuple} <: Cont
+struct LogLikelihood{TDist, TF, TArgs, TVal} <: Cont
     dist::TDist
-    value::TVal
+    f::TF # function that was used to construct the distribution
     args::TArgs
+    value::TVal
     
-    function LogLikelihood(dist::D, value, args::NTuple{N, Cont}) where {D<:Distribution, N}
-        return new{D, typeof(value), typeof(args)}(dist, value, args)
+    function LogLikelihood(dist::Distribution, f, args::NTuple{N, Cont}, value) where {N}
+        return new{typeof(dist), typeof(f), typeof(args), typeof(value)}(dist, f, args, value)
     end
 end
 
 function Base.show(io::IO, ℓ::LogLikelihood{D}) where {D}
-    print(io, "logpdf(", _shortname(D), "(")
+    print(io, "logpdf(", ℓ.f, "(")
     join(io, ℓ.args, ", ")
     print(io, "), ", ℓ.value, ")")
 end
 
 (ℓ::LogLikelihood{D})(θ) where {D} = begin
-    @show ℓ.args
-    logpdf(D((arg(θ) for arg in ℓ.args)...), ℓ.value(θ))
+    logpdf(ℓ.f((arg(θ) for arg in ℓ.args)...), ℓ.value(θ))
 end
 
 _init(::Tuple{}) = ()
@@ -171,18 +171,17 @@ function continuations(graph)
     
     for (ref, stmt) in graph
         if stmt isa Union{Assumption, Observation}
-            dist_call = stmt.dist
-            dist = getvalue(dist_call)
-
-            if dist_call isa Call
-                args = convertarg.(dist_call.args)
-            elseif dist_call isa Constant
-                args = Fixed.(params(dist))
+            dist_stmt = stmt.dist
+            dist = getvalue(dist_stmt)
+            if dist_stmt isa Call
+                f, args = dist_stmt.f, convertarg.(dist_stmt.args)
+            elseif f isa Constant
+                # fake a constant here... `getindex(Ref(x)) == x`
+                f = getindex
+                args = (Fixed(Ref(dist)),)
             end
-
             value = Variable(stmt.vn)
-            
-            c[ref] = LogLikelihood(dist, value, args)
+            c[ref] = LogLikelihood(dist, f, args, value)
         elseif stmt isa Call
             f, args = stmt.f, convertarg.(stmt.args)
             c[ref] = Transformation(f, args)
@@ -251,8 +250,6 @@ struct GibbsConditional{
     vn::TVar
     base::TBase
     blanket::TBlanket
-
-    # TODO: cache support here; catch invalid base distributions
 end
 
 function Base.show(io::IO, c::GibbsConditional)
