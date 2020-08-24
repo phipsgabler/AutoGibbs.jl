@@ -102,7 +102,8 @@ function (t::Transformation{typeof(getindex)})(θ)
     # intercept this to simplify getindex(x, i) to direct lookup of x[i]
     array, indexing = first(t.args), Base.tail(t.args)
     if array isa Variable
-        return _lookup(θ, VarName(array.vn, (Tuple(ix(θ) for ix in indexing),)))
+        actual_vn = VarName(array.vn, (Tuple(ix(θ) for ix in indexing),))
+        return _lookup(θ, actual_vn)
     else
         return t.f((arg(θ) for arg in t.args)...)
     end
@@ -282,10 +283,9 @@ This only works on discrete distributions, either scalar ones (resulting in a
 """
 function (c::GibbsConditional{V, L})(θ) where {
     V<:VarName, L<:LogLikelihood{<:DiscreteUnivariateDistribution}}
-    local Ω
 
-    try
-        Ω = support(c.base.dist)
+    Ω = try
+        support(c.base.dist)
     catch
         throw(ArgumentError("Unable to get the support of $(c.base.dist) (probably infinite)!"))
     end
@@ -300,25 +300,27 @@ end
 # `Product`s can be treated as an array of iid variables
 function (c::GibbsConditional{V, L})(θ) where {
     V<:VarName, L<:LogLikelihood{<:Product}}
-    local Ω
 
-    try
-        Ω = Iterators.product(support.(c.base.dist.v)...)
+    independent_distributions = c.base.dist.v
+    Ωs = try
+        support.(independent_distributions)
     catch
         throw(ArgumentError("Unable to get the support of $(c.base.dist) (probably infinite)!"))
     end
+    # Ω = collect(Iterators.product(Ωs...))
+    conditionals = similar(Ωs, DiscreteNonParametric)
+    
+    for index in eachindex(Ωs, independent_distributions, conditionals)
+        sub_vn = DynamicPPL.VarName(c.vn, (DynamicPPL.getindexing(c.vn)..., (index,)))
+        θs_on_support = fixvalues(θ, sub_vn => Ωs[index])
+        # @show [β for (ix, β) in c.blanket if ix == ((index,),)]
+        logtable = map(θs_on_support) do θ′
+            c.base(θ′) + reduce(+, (β(θ′) for (ix, β) in c.blanket if ix == index), init=0.0)
+        end
 
-    # @show Ω
-    conditionals = DiscreteNonParametric[]
-    θs_on_support = fixvalues(θ, c.vn => Ω)
-    # @show θs_on_support
-    # logtable = [c.base(θ′) + reduce(+, (β(θ′) for (ix, β) in c.blanket), init=0.0)
-    ℓ = c.base(θs_on_support[1])
-    # @show logpdf.(d0, Ω)
-    # @show (softmax(logtable))
-    # push!(conditionals, DiscreteNonParametric(Ωs, softmax!(logtable)))
-    # end
-    # @show conditionals
+        conditionals[index] = DiscreteNonParametric(Ωs[index], softmax!(vec(logtable)))
+    end
+
     return Product(conditionals)
 end
 
@@ -341,24 +343,29 @@ function fixvalues(θ, (source_vn, Ω))
                 # target <- source, target[i] <- source[i]
                 # both indices match -- we just update the complete thing
                 θ′[target_vn] = value
+                
             elseif target_subsumes_source
                 # target <- source[i], target[i] <- source[i][j]
                 # updating the target from a part of the source with "copy on write",
                 # target[i][j] = source[i][j] <=> setindex!(copy(target[i]), source[i][j], j)
 
-                # we index into the target by the source index!
+                # NB: we index into the target by the source index!
                 target_indexing = DynamicPPL.getindexing(source_vn)
-                ti_init, ti_last = _init(target_indexing), _last(target_indexing)
-                original = θ′[source_vn]
+                ti_init, ti_last = _splitindexing(target_indexing)
+                target = θ′[target_vn]
                 initial_target = foldl((x, i) -> getindex(x, i...),
                                        ti_init,
-                                       init=original)
-                target = setindex!(copy(initial_target), source, ti_last...)
-                θ′[target_vn] = target
+                                       init=target)
+                if isnothing(ti_last)
+                    θ′[target_vn] = initial_target
+                else
+                    target = setindex!(copy(initial_target), value, ti_last...)
+                    θ′[target_vn] = target
+                end
             elseif source_subsumes_target
                 # target[i][j] <- source[i]
                 # setting the target to part of the source array
-                # target[i][j] = source[i][j] <=> target
+                # target[i][j] = source[i][j]
                 
                 target_indexing = DynamicPPL.getindexing(target_vn)
                 target = foldl((x, i) -> getindex(x, i...),
@@ -370,6 +377,14 @@ function fixvalues(θ, (source_vn, Ω))
     end
 
     return result
+end
+
+
+_splitindexing(::NTuple{0}) = (), nothing
+_splitindexing((i,)::NTuple{1}) = (), i
+_splitindexing((i, j)::NTuple{2}) = (i,), j
+_splitindexing(t::Tuple) = let (init, last) = _splitindexing(Base.tail(t))
+    (first(t), init...), last
 end
 
 
