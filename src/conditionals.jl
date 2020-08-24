@@ -290,7 +290,7 @@ function (c::GibbsConditional{V, L})(θ) where {
         throw(ArgumentError("Unable to get the support of $(c.base.dist) (probably infinite)!"))
     end
 
-    θs_on_support = fixvalues(c.vn, θ, Ω)
+    θs_on_support = fixvalues(θ, c.vn => Ω)
     logtable = [c.base(θ′) + reduce(+, (β(θ′) for (ix, β) in c.blanket), init=0.0)
                 for θ′ in θs_on_support]
     conditional = DiscreteNonParametric(Ω, softmax!(logtable))
@@ -310,7 +310,7 @@ function (c::GibbsConditional{V, L})(θ) where {
 
     # @show Ω
     conditionals = DiscreteNonParametric[]
-    θs_on_support = fixvalues(c.vn, θ, Ω)
+    θs_on_support = fixvalues(θ, c.vn => Ω)
     # @show θs_on_support
     # logtable = [c.base(θ′) + reduce(+, (β(θ′) for (ix, β) in c.blanket), init=0.0)
     ℓ = c.base(θs_on_support[1])
@@ -326,44 +326,50 @@ end
     throw(ArgumentError("Cannot condition a non-discrete or non-univariate distribution $(c.base)."))
 
 
-"""Produce `|Ω|` copies of `θ` with the `vn` entries fixed to the values in the support `Ω`."""
-function fixvalues(vn, θ, Ω)
+"""Produce `|Ω|` copies of `θ` with the `fixedvn` entries fixed to the values in the support `Ω`."""
+function fixvalues(θ, (source_vn, Ω))
+    # "source" is the value stored in Ω; "target" is the matching value in θ.
+
     result = [copy(θ) for _ in Ω]
     
-    for (θ′, ω) in zip(result, Ω)
-        for variable in keys(θ′)
-            matched_indices = match_indexing(vn, variable)
-            if !isnothing(matched_indices)
-                source_indexing, target_indexing = matched_indices
-                source = foldl((x, i) -> getindex(x, i...),
-                               source_indexing,
-                               init=ω)
-                if target_indexing == ()
-                    # we update the complete thing
-                    θ′[variable] = source
-                else
-                    # updating part of an array -- do "copy on write",
-                    # target[i][j][k] = source <=> setindex!(copy(target[i][j]), source, k)
-                    target = θ′[variable]
-                    initial_target = foldl((x, i) -> getindex(x, i...),
-                                           target_initial_indexing,
-                                           init=target)
-                    θ′[variable] = setindex!(copy(initial_target), source, target_last_index...)
-                end
+    for (θ′, value) in zip(result, Ω)
+        for target_vn in keys(θ′)
+            source_subsumes_target = DynamicPPL.subsumes(source_vn, target_vn)
+            target_subsumes_source = DynamicPPL.subsumes(target_vn, source_vn)
+            
+            if source_subsumes_target && target_subsumes_source
+                # target <- source, target[i] <- source[i]
+                # both indices match -- we just update the complete thing
+                θ′[target_vn] = value
+            elseif target_subsumes_source
+                # target <- source[i], target[i] <- source[i][j]
+                # updating the target from a part of the source with "copy on write",
+                # target[i][j] = source[i][j] <=> setindex!(copy(target[i]), source[i][j], j)
+
+                # we index into the target by the source index!
+                target_indexing = DynamicPPL.getindexing(source_vn)
+                ti_init, ti_last = _init(target_indexing), _last(target_indexing)
+                original = θ′[source_vn]
+                initial_target = foldl((x, i) -> getindex(x, i...),
+                                       ti_init,
+                                       init=original)
+                target = setindex!(copy(initial_target), source, ti_last...)
+                θ′[target_vn] = target
+            elseif source_subsumes_target
+                # target[i][j] <- source[i]
+                # setting the target to part of the source array
+                # target[i][j] = source[i][j] <=> target
+                
+                target_indexing = DynamicPPL.getindexing(target_vn)
+                target = foldl((x, i) -> getindex(x, i...),
+                               target_indexing,
+                               init=value)
+                θ′[target_vn] = target
             end
         end
     end
 
     return result
-end
-
-function match_indexing(vn1::VarName, vn2::VarName)
-    if DynamicPPL.subsumes(vn1, vn2) || DynamicPPL.subsumes(vn2, vn1)
-        # just swap these :D
-        return (DynamicPPL.getindexing(vn2), DynamicPPL.getindexing(vn1))
-    else
-        return nothing
-    end
 end
 
 
