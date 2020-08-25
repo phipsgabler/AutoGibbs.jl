@@ -186,12 +186,11 @@ graph_gmm_shifted = trackdependencies(model_gmm_shifted)
     end
     
     # Observe each point of the input.
-    # note that `Categorical(K)` does not work, because it is an alias method!
-    s[1] ~ DiscreteNonParametric(1:K, fill(1/K, K))
+    s[1] ~ Categorical(K)
     x[1] ~ Normal(m[s[1]], 0.1)
 
     for i = 2:N
-        s[i] ~ DiscreteNonParametric(1:K, T[s[i-1]])
+        s[i] ~ Categorical(T[s[i-1]])
         x[i] ~ Normal(m[s[i]], 0.1)
     end
 end
@@ -204,9 +203,9 @@ graph_hmm = trackdependencies(model_hmm)
 
 let T = [graph_hmm[23].value, graph_hmm[38].value],
     m = [graph_hmm[29].value, graph_hmm[44].value],
-    s1 = graph_hmm[51].value,
-    s2 = graph_hmm[72].value,
-    s3 = graph_hmm[93].value,
+    s1 = graph_hmm[48].value,
+    s2 = graph_hmm[68].value,
+    s3 = graph_hmm[88].value,
     x = graph_hmm[2].value,
     D_obs_1 = Normal(m[1], 0.1),
     D_obs_2 = Normal(m[2], 0.1),
