@@ -313,11 +313,9 @@ function (c::GibbsConditional{V, L})(θ) where {
     for index in eachindex(Ωs, independent_distributions, conditionals)
         sub_vn = DynamicPPL.VarName(c.vn, (DynamicPPL.getindexing(c.vn)..., (index,)))
         θs_on_support = fixvalues(θ, sub_vn => Ωs[index])
-        # @show [β for (ix, β) in c.blanket if ix == ((index,),)]
         logtable = map(θs_on_support) do θ′
-            c.base(θ′) + reduce(+, (β(θ′) for (ix, β) in c.blanket if ix == index), init=0.0)
+            c.base(θ′) + reduce(+, (β(θ′) for (ix, β) in c.blanket if ix == ((index,),)), init=0.0)
         end
-
         conditionals[index] = DiscreteNonParametric(Ωs[index], softmax!(vec(logtable)))
     end
 
