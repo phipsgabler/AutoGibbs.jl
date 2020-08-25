@@ -291,8 +291,10 @@ function (c::GibbsConditional{V, L})(θ) where {
     end
 
     θs_on_support = fixvalues(θ, c.vn => Ω)
+    foreach(display, θs_on_support)
     logtable = [c.base(θ′) + reduce(+, (β(θ′) for (ix, β) in c.blanket), init=0.0)
                 for θ′ in θs_on_support]
+    @show "end"
     conditional = DiscreteNonParametric(Ω, softmax!(logtable))
     return conditional
 end
