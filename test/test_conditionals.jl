@@ -1,3 +1,5 @@
+using Libtask
+
 # @model function bernoulli_mixture(x)
 #     # Mixture prior.
 #     w ~ Dirichlet(2, 1.0)
@@ -239,61 +241,75 @@
 
 
 
-update_histogram!(nk, bin) = (nk[bin] += 1; nk)
+function update_histogram!(histogram, bin)
+    if bin > length(histogram)
+        push!(histogram, 1)
+    else
+        histogram[bin] += 1
+    end
 
-@model function imm(x)
-    N = length(x)
+    return histogram
+end
 
-    nk = zeros(Int, N)
+@model function imm(y, α, ::Type{T}=Vector{Float64}) where {T}
+    N = length(y)
+
     K = 0
-    z = zeros(Int, N)
-    
+    nk = Vector{Int}()
+    z = Vector{Int}(undef, N)
+
     for n = 1:N
-        z[n] ~ ChineseRestaurantProcess(DirichletProcess(1.0), nk)
+        z[n] ~ ChineseRestaurantProcess(DirichletProcess(α), nk)
         nk = update_histogram!(nk, z[n])
         K = max(K, z[n])
     end
 
-    μ ~ filldist(Normal(), K)
+    μ = T(undef, K)
+    for k = 1:K
+        μ[k] ~ Normal()
+    end
 
     for n = 1:N
-        x[n] ~ Normal(μ[z[n]], 1.0)
+        y[n] ~ Normal(μ[z[n]], 1.0)
     end
 end
 
-model_imm = imm([0.1, -0.05, 1.0])
+# data from R. Neal paper
+model_imm = imm([-1.02, 0.14, 0.51], 10.0)
 graph_imm = trackdependencies(model_imm)
-@testdependencies(model_imm, z[1], z[2], z[3], μ, x[1], x[2], x[3])
-@test_nothrow sample(model_imm, Gibbs(AutoConditional(:z), MH(:μ)), 2)
+@testdependencies(model_imm, z[1], z[2], z[3], μ, y[1], y[2], y[3])
 @test_nothrow sample(model_imm, Gibbs(AutoConditional(:z), HMC(0.01, 10, :μ)), 2)
 
+# for comparison:
+# sample(model_imm, Gibbs(MH(:z => filldist(Categorical(9), 9)), HMC(0.01, 10, :μ)), 2)
+
 let z = [graph_imm[16].value, graph_imm[32].value, graph_imm[47].value],
-    μ = graph_imm[53],
-    x = graph_imm[2].value,
+    μ = graph_imm[51].value,
+    y = graph_imm[2].value,
     # D_obs_1 = Normal(m[1], 0.1),
     # D_obs_2 = Normal(m[2], 0.1),
-    # p_s1_1 = pdf(Categorical(2), 1) * pdf(Categorical(T[1]), s2) * pdf(D_obs_1, x[1]),
-    # p_s1_2 = pdf(Categorical(2), 2) * pdf(Categorical(T[2]), s2) * pdf(D_obs_2, x[1]),
-    # p_s2_1 = pdf(Categorical(T[s1]), 1) * pdf(Categorical(T[1]), s3) * pdf(D_obs_1, x[2]),
-    # p_s2_2 = pdf(Categorical(T[s1]), 2) * pdf(Categorical(T[2]), s3) * pdf(D_obs_2, x[2]),
-    # p_s3_1 = pdf(Categorical(T[s2]), 1) * pdf(D_obs_1, x[3]),
-    # p_s3_2 = pdf(Categorical(T[s2]), 2) * pdf(D_obs_2, x[3]),
+    # p_s1_1 = pdf(Categorical(2), 1) * pdf(Categorical(T[1]), s2) * pdf(D_obs_1, y[1]),
+    # p_s1_2 = pdf(Categorical(2), 2) * pdf(Categorical(T[2]), s2) * pdf(D_obs_2, y[1]),
+    # p_s2_1 = pdf(Categorical(T[s1]), 1) * pdf(Categorical(T[1]), s3) * pdf(D_obs_1, y[2]),
+    # p_s2_2 = pdf(Categorical(T[s1]), 2) * pdf(Categorical(T[2]), s3) * pdf(D_obs_2, y[2]),
+    # p_s3_1 = pdf(Categorical(T[s2]), 1) * pdf(D_obs_1, y[3]),
+    # p_s3_2 = pdf(Categorical(T[s2]), 2) * pdf(D_obs_2, y[3]),
     # Z_1 = p_s1_1 + p_s1_2,
     # Z_2 = p_s2_1 + p_s2_2,
     # Z_3 = p_s3_1 + p_s3_2
 
 
     θ = AutoGibbs.sampled_values(graph_imm)
-    @info "IMM analytic" analytic_conditionals
+    # @info "IMM analytic" analytic_conditionals
     
     local calculated_conditionals
     @test_nothrow calculated_conditionals = conditionals(graph_imm, @varname(z))
     @info "IMM calculated" Dict(vn => cond(θ) for (vn, cond) in calculated_conditionals)
     
-    for (vn, analytic_conditional) in analytic_conditionals
-        # @show vn => probs(calculated_conditionals[vn]), probs(analytic_conditional)
-        @test issimilar(calculated_conditionals[vn](θ), analytic_conditional)
-    end
+    # for (vn, analytic_conditional) in analytic_conditionals
+    #     # @show vn => probs(calculated_conditionals[vn]), probs(analytic_conditional)
+    #     @test issimilar(calculated_conditionals[vn](θ), analytic_conditional)
+    # end
 end
 
 
