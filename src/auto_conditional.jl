@@ -10,8 +10,12 @@ export AutoConditional
 """
     AutoConditional(sym)
 
-A "pseudo-sampler" to use automatically extracted conditionals within `Gibbs`.
-`AutoConditional(:x)` will sample the Gibbs conditional of variable `x`.
+A "pseudo-sampler" to use automatically extracted conditionals within `Gibbs`.  The conditionals are
+extracted from the model trace at sampling step and allow dynamically changing models.  If you don't
+need that, use `StaticConditional` instead.
+
+`AutoConditional(:x)` will sample the Gibbs conditional of variable `x`, or equivalently, all 
+variables subsumed by `x`.
 
 # Examples
 

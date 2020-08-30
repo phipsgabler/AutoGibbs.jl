@@ -1,6 +1,7 @@
 using DataStructures: DefaultDict
 using Distributions
 using DynamicPPL
+using Turing.RandomMeasures
 
 
 export conditionals, sampled_values
@@ -291,10 +292,8 @@ function (c::GibbsConditional{V, L})(θ) where {
     end
 
     θs_on_support = fixvalues(θ, c.vn => Ω)
-    foreach(display, θs_on_support)
     logtable = [c.base(θ′) + reduce(+, (β(θ′) for (ix, β) in c.blanket), init=0.0)
                 for θ′ in θs_on_support]
-    @show "end"
     conditional = DiscreteNonParametric(Ω, softmax!(logtable))
     return conditional
 end
@@ -323,6 +322,25 @@ function (c::GibbsConditional{V, L})(θ) where {
 
     return Product(conditionals)
 end
+
+
+# Special treatment for CRP variables: calculate likelihoods as normal for truncated support
+# (covering all existing clusters), and marginalize the creation of a new cluster
+function (c::GibbsConditional{V, L})(θ) where {
+    V<:VarName, L<:LogLikelihood{<:ChineseRestaurantProcess}}
+
+    Ω = support(c.base.dist)
+    Ω_init, Ω_last = Ω[1:end-1], Ω[end]
+
+    θs_on_support = fixvalues(θ, c.vn => Ω_init)
+    logtable_init = Float64[c.base(θ′) + reduce(+, (β(θ′) for (ix, β) in c.blanket), init=0.0)
+                            for θ′ in θs_on_support]
+    probs_init = exp.(logtable_init)
+    prob_last = 1 - reduce(+, probs_init, init=0.0)
+    conditional = DiscreteNonParametric(Ω, push!(probs_init, prob_last))
+    return conditional
+end
+
 
 (c::GibbsConditional)(θ) =
     throw(ArgumentError("Cannot condition a non-discrete or non-univariate distribution $(c.base)."))

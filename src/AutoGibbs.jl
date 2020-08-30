@@ -5,6 +5,7 @@ include("dependencies.jl")
 include("plotting.jl")
 include("conditionals.jl")
 include("auto_conditional.jl")
+include("static_conditional.jl")
 
 
 export trackdependencies
@@ -12,7 +13,8 @@ export trackdependencies
 
 function slicedependencies(model::Model{F}, args...) where {F}
     trace = trackmodel(model, args...)
-    slice = strip_dependencies(strip_model_layers(F, trace))
+    strip = strip_model_layers(F, trace)
+    slice = strip_dependencies(strip)
     return slice
 end
 
