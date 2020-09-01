@@ -161,18 +161,23 @@ function strip_dependencies(root)
 
     for child in getchildren(root)
         params = tilde_parameters(child)
+
         if !isnothing(params)
             # tilde node: is a dependency for sure
             push!(dependencies, child)
         else
             # non-tilde node: make candidate, if any parent is a candidate or dependency
-            if any(r ∈ candidates || r ∈ dependencies for r in referenced(child))
+            
+            # this `t` is critical -- exploding type inference!
+            t = any(r ∈ candidates || r ∈ dependencies for r in referenced(child))
+            if t
                 push!(candidates, child)
-                
+
                 if child isa CallingNode{typeof(setindex!)}
                     # if the candidate is mutating an array, also make the mutated object a candidate
                     # and record the backedge from the mutated one to:
                     # `n = setindex!(x, v, i)` makes `x` a candidate, and a backedge from `x` to `n`.
+                    
                     mutated = getargument(child, 1)
                     if mutated isa TapeReference
                         push!(candidates, mutated[])
@@ -294,7 +299,7 @@ getvn(::Constant) = nothing
 Return all `Assumption`s (potentially with indexing) that the tilde `stmt` depends on directly.
 """
 function parent_variables(graph, stmt::Tilde)
-    result = Set{Tuple{Assumption, Tuple}}()
+    result = Set{Pair{VarName, Assumption}}()
     parent_variables!(result, graph, stmt.dist)
     stmt.value isa Reference && parent_variables!(result, graph, stmt.value)
     return result
@@ -326,7 +331,7 @@ function parent_variables!(result, graph, stmt::Assumption)
     # direct dependency:
     # ⟨31⟩ = w ~ Dirichlet()
     # ⟨42⟩ = z[1] ~ DiscreteNonParametric(⟨31⟩)
-    return push!(result, (stmt, ()))
+    return push!(result, stmt.vn => stmt)
 end
 function parent_variables!(result, graph, stmt::Observation)
     @warn "The parent statement is an observation ($(stmt)), something weird has happened..."
@@ -343,20 +348,6 @@ function parent_variables!(result, graph, stmt::Call{<:Nothing})
     
     return result
 end
-# function parent_variables!(result, graph, stmt::Call{<:Tuple})
-#     # also go back to variable definition site of a marked location:
-#     # ⟨9⟩ = ⟨8⟩(array initializer with undefined values, ⟨4⟩)
-#     # ⟨28⟩ = μ[2] ~ Normal()
-#     # ⟨80⟩ = f(⟨9⟩, ⟨79⟩)
-#     # ⟨86⟩ = x[3] ⩪ Normal(⟨80⟩, 1.0) ← ⟨85⟩
-
-#     for arg in stmt.args
-#         parent_variables!(result, graph, arg)
-#     end
-#     vn, location = stmt.definition
-#     push!(result, (graph[location], DynamicPPL.getindexing(vn)))
-#     return result
-# end
 function parent_variables!(result, graph, stmt::Call{<:Tuple, typeof(getindex)})
     # special case: don't add whole array (`z`) for indexing calls
     # ⟨12⟩ = z ~ filldist(⟨10⟩, ⟨5⟩)
@@ -366,7 +357,7 @@ function parent_variables!(result, graph, stmt::Call{<:Tuple, typeof(getindex)})
         parent_variables!(result, graph, arg)
     end
     vn, location = stmt.definition
-    push!(result, (graph[location], DynamicPPL.getindexing(vn)))
+    push!(result, vn => graph[location])
     return result
 end
 

@@ -118,7 +118,8 @@ struct LogLikelihood{TDist, TF, TArgs, TVal} <: Cont
     value::TVal
     
     function LogLikelihood(dist::Distribution, f, args::NTuple{N, Cont}, value) where {N}
-        return new{typeof(dist), typeof(f), typeof(args), typeof(value)}(dist, f, args, value)
+        return new{typeof(dist), typeof(f), typeof(args), typeof(value)}(
+            dist, f, args, value)
     end
 end
 
@@ -132,6 +133,7 @@ end
     logpdf(ℓ.f((arg(θ) for arg in ℓ.args)...), ℓ.value(θ))
 end
 
+
 _init(::Tuple{}) = ()
 _init(t::Tuple{Any}) = ()
 _init(t::Tuple) = (first(t), _init(Base.tail(t))...)
@@ -141,6 +143,12 @@ _last(t::Tuple) = _last(Base.tail(t))
 
 
 
+"""
+    continuations(graph)
+
+Assign to each node in the graph a `Cont` object, representing a function from a variable assignment
+(θ) to the value of an expression or the log-likelihood in case of a tilde statement.
+"""
 function continuations(graph)
     c = SortedDict{Reference, Cont}()
     
@@ -195,13 +203,15 @@ function continuations(graph)
     return c
 end
 
+"""
+    conditionals(graph, varname)
 
+Calculate the `GibbsConditional`s of all variables in `graph` that match `varname`.  There can 
+be multiple observations for which this holds, so a dictionary is returned.
+"""
 function conditionals(graph, varname)
-    # There can be multiple tildes for one `varname`, e.g., `x[1], x[2]` both subsumed by `x`.
-    # dists = Dict{VarName, Distribution}()
-    # blankets = DefaultDict{Tuple{VarName, Union{Nothing, Tuple}}, Float64}(0.0)
     dists = Dict{VarName, LogLikelihood}()
-    blankets = DefaultDict{VarName, Vector{Pair{Tuple, LogLikelihood}}}(
+    blankets = DefaultDict{VarName, Vector{Pair{VarName, LogLikelihood}}}(
         Vector{Pair{Tuple, LogLikelihood}})
     conts = continuations(graph)
     
@@ -213,10 +223,10 @@ function conditionals(graph, varname)
             end
             
             # add likelihood to all parents of which this RV is in the blanket
-            for (p, ix) in parent_variables(graph, stmt)
+            for (pvn, p) in parent_variables(graph, stmt)
                 for vn in keys(dists)
                     if DynamicPPL.subsumes(vn, p.vn)
-                        push!(blankets[vn], ix => conts[ref])
+                        push!(blankets[vn], pvn => conts[ref])
                         break
                     end
                 end
@@ -227,6 +237,13 @@ function conditionals(graph, varname)
     return Dict(vn => GibbsConditional(vn, d, blankets[vn]) for (vn, d) in dists)
 end
 
+
+"""
+    sampled_values(graph)
+
+Extract the values of all observed and assumed random variables in the graph, including their
+occuring parts.
+"""
 function sampled_values(graph)
     θ = Dict{VarName, Any}()
     for (ref, stmt) in graph
@@ -258,7 +275,7 @@ function Base.show(io::IO, c::GibbsConditional)
     print(io, c.base)
     if !isempty(c.blanket)
         print(io, " + ")
-        join(io, (β for (ix, β) in c.blanket), " + ")
+        join(io, (β for (vn, β) in c.blanket), " + ")
     end
 end
 
@@ -292,7 +309,7 @@ function (c::GibbsConditional{V, L})(θ) where {
     end
 
     θs_on_support = fixvalues(θ, c.vn => Ω)
-    logtable = [c.base(θ′) + reduce(+, (β(θ′) for (ix, β) in c.blanket), init=0.0)
+    logtable = [c.base(θ′) + reduce(+, (β(θ′) for (vn, β) in c.blanket), init=0.0)
                 for θ′ in θs_on_support]
     conditional = DiscreteNonParametric(Ω, softmax!(logtable))
     return conditional
@@ -308,14 +325,14 @@ function (c::GibbsConditional{V, L})(θ) where {
     catch
         throw(ArgumentError("Unable to get the support of $(c.base.dist) (probably infinite)!"))
     end
-    # Ω = collect(Iterators.product(Ωs...))
+    
     conditionals = similar(Ωs, DiscreteNonParametric)
     
     for index in eachindex(Ωs, independent_distributions, conditionals)
         sub_vn = DynamicPPL.VarName(c.vn, (DynamicPPL.getindexing(c.vn)..., (index,)))
         θs_on_support = fixvalues(θ, sub_vn => Ωs[index])
         logtable = map(θs_on_support) do θ′
-            c.base(θ′) + reduce(+, (β(θ′) for (ix, β) in c.blanket if ix == ((index,),)), init=0.0)
+            c.base(θ′) + reduce(+, (β(θ′) for (vn, β) in c.blanket if vn == sub_vn), init=0.0)
         end
         conditionals[index] = DiscreteNonParametric(Ωs[index], softmax!(vec(logtable)))
     end
@@ -324,22 +341,51 @@ function (c::GibbsConditional{V, L})(θ) where {
 end
 
 
-# Special treatment for CRP variables: calculate likelihoods as normal for truncated support
-# (covering all existing clusters), and marginalize the creation of a new cluster
-function (c::GibbsConditional{V, L})(θ) where {
-    V<:VarName, L<:LogLikelihood{<:ChineseRestaurantProcess}}
+# # Special treatment for CRP variables: calculate likelihoods as normal for truncated support
+# # (covering all existing clusters), and marginalize the creation of a new cluster
+# function (c::GibbsConditional{V, L})(θ) where {
+#     V<:VarName, L<:LogLikelihood{<:ChineseRestaurantProcess}}
+#     Ω = support(c.base.dist)
+#     Ω_init, Ω_last = Ω[1:end-1], Ω[end]
 
-    Ω = support(c.base.dist)
-    Ω_init, Ω_last = Ω[1:end-1], Ω[end]
+#     θs_on_init = fixvalues(θ, c.vn => Ω_init)
+#     logtable_init = Float64[c.base(θ′) + reduce(+, (β(θ′) for (vn, β) in c.blanket), init=0.0)
+#                             for θ′ in θs_on_support]
+    
+#     θ_on_last = fixvalues(θ, c.vn => [Ω_last])
+#     log_last = _estimate_last_likelihood(c, θ_on_last)
+#     conditional = DiscreteNonParametric(Ω, softmax!(push!(logtable_init, log_last)))
+#     return conditional
+# end
 
-    θs_on_support = fixvalues(θ, c.vn => Ω_init)
-    logtable_init = Float64[c.base(θ′) + reduce(+, (β(θ′) for (ix, β) in c.blanket), init=0.0)
-                            for θ′ in θs_on_support]
-    probs_init = exp.(logtable_init)
-    prob_last = 1 - reduce(+, probs_init, init=0.0)
-    conditional = DiscreteNonParametric(Ω, push!(probs_init, prob_last))
-    return conditional
-end
+
+# """
+# Estimate the "new cluster" likelihood of a CRP, given through
+
+#     𝓅(zₙ = K + 1 | z₁, ..., zₙ₋₁, μ, xₙ) ∝ (∏_{i = z ≥ n} 𝓅(zᵢ | z₁,...,zᵢ)) 𝓅(xₙ | zₙ = K + 1, μ),
+
+# by approximating
+
+#     𝓅(xₙ | zₙ = K + 1, μ) = ∫ 𝓅(xₙ | μ = m) dm ≈ 𝓅(xₙ | m)
+
+# where Law(m) = Law(μ).
+# """
+# function _estimate_last_likelihood(c, θ)
+#     l = c.base(θ)
+    
+#     for (ix, β) in c.blanket
+#         if β isa LogLikelihood{<:ChineseRestaurantProcess} && β.dist.rpm == c.base.rpm
+#             l += β(θ)
+#         else
+            
+#             conditioned_dist = β.f((arg(θ) for arg in β.args)...)
+#             sample = rand(conditioned_dist)
+#             l += logpdf(conditioned_dist, sample)
+#         end
+#     end
+    
+#     return l
+# end
 
 
 (c::GibbsConditional)(θ) =
