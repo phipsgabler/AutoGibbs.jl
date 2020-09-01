@@ -1,19 +1,19 @@
-@model function bernoulli_mixture(x)
-    # Mixture prior.
-    w ~ Dirichlet(2, 1.0)
+# @model function bernoulli_mixture(x)
+#     # Mixture prior.
+#     w ~ Dirichlet(2, 1.0)
 
-    # Latent probability.
-    p ~ DiscreteNonParametric([0.3, 0.7], w)
+#     # Latent probability.
+#     p ~ DiscreteNonParametric([0.3, 0.7], w)
 
-    # Observation.
-    x ~ Bernoulli(p)
-end
+#     # Observation.
+#     x ~ Bernoulli(p)
+# end
 
-model_bernoulli = bernoulli_mixture(false)
+# model_bernoulli = bernoulli_mixture(false)
 # graph_bernoulli = trackdependencies(model_bernoulli)
 # @testdependencies(model_bernoulli, w, p, x)
-cond_bernoulli_p = StaticConditional(model_bernoulli, :p)
-@test_nothrow sample(model_bernoulli, Gibbs(cond_bernoulli_p, MH(:w)), 500)
+# cond_bernoulli_p = StaticConditional(model_bernoulli, :p)
+# @test_nothrow sample(model_bernoulli, Gibbs(cond_bernoulli_p, MH(:w)), 500)
 
 
 # let w = graph_bernoulli[4].value,
@@ -36,30 +36,30 @@ cond_bernoulli_p = StaticConditional(model_bernoulli, :p)
 # end
 
 
-@model function gmm(x, K)
-    N = length(x)
+# @model function gmm(x, K)
+#     N = length(x)
     
-    # Cluster centers.
-    μ ~ filldist(Normal(), K)
+#     # Cluster centers.
+#     μ ~ filldist(Normal(), K)
 
-    # Cluster association prior.
-    w ~ Dirichlet(K, 1.0)
+#     # Cluster association prior.
+#     w ~ Dirichlet(K, 1.0)
 
-    # Cluster assignments.
-    z ~ filldist(DiscreteNonParametric(1:K, w), N)
+#     # Cluster assignments.
+#     z ~ filldist(DiscreteNonParametric(1:K, w), N)
 
-    # Observations.
-    for n = 1:N
-        x[n] ~ Normal(μ[z[n]], 1.0)
-    end
-end
+#     # Observations.
+#     for n = 1:N
+#         x[n] ~ Normal(μ[z[n]], 1.0)
+#     end
+# end
 
-model_gmm = gmm([0.1, -0.05, 1.0], 2)
+# model_gmm = gmm([0.1, -0.05, 1.0], 2)
 # graph_gmm = trackdependencies(model_gmm)
 # @testdependencies(model_gmm, μ, w, z, x[1], x[2], x[3])
-cond_gmm_z = StaticConditional(model_gmm, :z)
-@test_nothrow sample(model_gmm, Gibbs(cond_gmm_z, MH(:w, :μ)), 500)
-@test_nothrow sample(model_gmm, Gibbs(cond_gmm_z, HMC(0.01, 10, :w, :μ)), 500)
+# cond_gmm_z = StaticConditional(model_gmm, :z)
+# @test_nothrow sample(model_gmm, Gibbs(cond_gmm_z, MH(:w, :μ)), 500)
+# @test_nothrow sample(model_gmm, Gibbs(cond_gmm_z, HMC(0.01, 10, :w, :μ)), 500)
 
 # let μ = graph_gmm[7].value,
 #     w = graph_gmm[9].value,
@@ -85,32 +85,32 @@ cond_gmm_z = StaticConditional(model_gmm, :z)
 
 
 # ###########################################################################
-@model function gmm_loopy(x, K, ::Type{T}=Float64) where {T<:Real}
-    N = length(x)
+# @model function gmm_loopy(x, K, ::Type{T}=Float64) where {T<:Real}
+#     N = length(x)
 
-    # Cluster centers.
-    μ = Vector{T}(undef, K)
-    for k = 1:K
-        μ[k] ~ Normal()
-    end
+#     # Cluster centers.
+#     μ = Vector{T}(undef, K)
+#     for k = 1:K
+#         μ[k] ~ Normal()
+#     end
 
-    # Cluster association prior.
-    w ~ Dirichlet(K, 1.0)
+#     # Cluster association prior.
+#     w ~ Dirichlet(K, 1.0)
 
-    # Cluster assignments & observations.
-    z = Vector{Int}(undef, N)
-    for n = 1:N
-        z[n] ~ DiscreteNonParametric(1:K, w)
-        x[n] ~ Normal(μ[z[n]], 1.0)
-    end
-end
+#     # Cluster assignments & observations.
+#     z = Vector{Int}(undef, N)
+#     for n = 1:N
+#         z[n] ~ DiscreteNonParametric(1:K, w)
+#         x[n] ~ Normal(μ[z[n]], 1.0)
+#     end
+# end
 
-model_gmm_loopy = gmm_loopy([0.1, -0.05, 1.0], 2)
+# model_gmm_loopy = gmm_loopy([0.1, -0.05, 1.0], 2)
 # graph_gmm_loopy = trackdependencies(model_gmm_loopy)
 # @testdependencies(model_gmm_loopy, μ[1], μ[2], w, z[1], z[2], z[3], x[1], x[2], x[3])
-cond_gmm_loopy_z = StaticConditional(model_gmm_loopy, :z)
-@test_nothrow sample(model_gmm_loopy, Gibbs(cond_gmm_loopy_z, MH(:w, :μ)), 500)
-@test_nothrow sample(model_gmm_loopy, Gibbs(cond_gmm_loopy_z, HMC(0.01, 10, :w, :μ)), 500)
+# cond_gmm_loopy_z = StaticConditional(model_gmm_loopy, :z)
+# @test_nothrow sample(model_gmm_loopy, Gibbs(cond_gmm_loopy_z, MH(:w, :μ)), 500)
+# @test_nothrow sample(model_gmm_loopy, Gibbs(cond_gmm_loopy_z, HMC(0.01, 10, :w, :μ)), 500)
 
 # let μ = [graph_gmm_loopy[19].value, graph_gmm_loopy[28].value],
 #     w = graph_gmm_loopy[31].value,
@@ -138,73 +138,73 @@ cond_gmm_loopy_z = StaticConditional(model_gmm_loopy, :z)
 
 
 # ###########################################################################
-# same as gmm_loopy, but with an affine transformation on μ.
-@model function gmm_shifted(x, K, ::Type{T}=Float64) where {T<:Real}
-    N = length(x)
+# # same as gmm_loopy, but with an affine transformation on μ.
+# @model function gmm_shifted(x, K, ::Type{T}=Float64) where {T<:Real}
+#     N = length(x)
 
-    # Cluster centers.
-    μ = Vector{T}(undef, K)
-    for k = 1:K
-        μ[k] ~ Normal()
-    end
+#     # Cluster centers.
+#     μ = Vector{T}(undef, K)
+#     for k = 1:K
+#         μ[k] ~ Normal()
+#     end
 
-    # Cluster association prior.
-    w ~ Dirichlet(K, 1.0)
+#     # Cluster association prior.
+#     w ~ Dirichlet(K, 1.0)
 
-    # Cluster assignments & observations.
-    z = Vector{Int}(undef, N)
-    for n = 1:N
-        z[n] ~ DiscreteNonParametric(1:K, w)
-        x[n] ~ Normal(4μ[z[n]] - 1, 1.0)
-    end
-end
+#     # Cluster assignments & observations.
+#     z = Vector{Int}(undef, N)
+#     for n = 1:N
+#         z[n] ~ DiscreteNonParametric(1:K, w)
+#         x[n] ~ Normal(4μ[z[n]] - 1, 1.0)
+#     end
+# end
 
-model_gmm_shifted = gmm_shifted([0.1, -0.05, 1.0], 2)
+# model_gmm_shifted = gmm_shifted([0.1, -0.05, 1.0], 2)
 # graph_gmm_shifted = trackdependencies(model_gmm_shifted)
 # @testdependencies(model_gmm_shifted, μ[1], μ[2], w, z[1], z[2], z[3], x[1], x[2], x[3])
-cond_gmm_shifted_z = StaticConditional(model_gmm_shifted, :z)
-@test_nothrow sample(model_gmm_shifted, Gibbs(cond_gmm_shifted_z, MH(:w, :μ)), 500)
-@test_nothrow sample(model_gmm_shifted, Gibbs(cond_gmm_shifted_z, HMC(0.01, 10, :w, :μ)), 500)
+# cond_gmm_shifted_z = StaticConditional(model_gmm_shifted, :z)
+# @test_nothrow sample(model_gmm_shifted, Gibbs(cond_gmm_shifted_z, MH(:w, :μ)), 500)
+# @test_nothrow sample(model_gmm_shifted, Gibbs(cond_gmm_shifted_z, HMC(0.01, 10, :w, :μ)), 500)
 
 
 # ###########################################################################
-# K clusters, each one around i for i = 1:K with variance 0.5
-@model function hmm(x, K, ::Type{T}=Float64) where {T<:Real}
-    N = length(x)
+# # K clusters, each one around i for i = 1:K with variance 0.5
+# @model function hmm(x, K, ::Type{T}=Float64) where {T<:Real}
+#     N = length(x)
 
-    # State sequence.
-    s = zeros(Int, N)
+#     # State sequence.
+#     s = zeros(Int, N)
 
-    # Emission matrix.
-    m = Vector{T}(undef, K)
+#     # Emission matrix.
+#     m = Vector{T}(undef, K)
 
-    # Transition matrix.
-    T = Vector{Vector{T}}(undef, K)
+#     # Transition matrix.
+#     T = Vector{Vector{T}}(undef, K)
 
-    # Assign distributions to each element
-    # of the transition matrix and the
-    # emission matrix.
-    for i = 1:K
-        T[i] ~ Dirichlet(K, 1.0)
-        m[i] ~ Normal(i, 0.5)
-    end
+#     # Assign distributions to each element
+#     # of the transition matrix and the
+#     # emission matrix.
+#     for i = 1:K
+#         T[i] ~ Dirichlet(K, 1.0)
+#         m[i] ~ Normal(i, 0.5)
+#     end
     
-    # Observe each point of the input.
-    s[1] ~ Categorical(K)
-    x[1] ~ Normal(m[s[1]], 0.1)
+#     # Observe each point of the input.
+#     s[1] ~ Categorical(K)
+#     x[1] ~ Normal(m[s[1]], 0.1)
 
-    for i = 2:N
-        s[i] ~ Categorical(T[s[i-1]])
-        x[i] ~ Normal(m[s[i]], 0.1)
-    end
-end
+#     for i = 2:N
+#         s[i] ~ Categorical(T[s[i-1]])
+#         x[i] ~ Normal(m[s[i]], 0.1)
+#     end
+# end
 
-model_hmm = hmm([1.1, 0.95, 2.2], 2)
+# model_hmm = hmm([1.1, 0.95, 2.2], 2)
 # graph_hmm = trackdependencies(model_hmm)
 # @testdependencies(model_hmm, T[1], T[2], m[1], m[2], s[1], s[2], s[3], x[1], x[2], x[3])
-cond_hmm_s = StaticConditional(model_hmm, :s)
-@test_nothrow sample(model_hmm, Gibbs(cond_hmm_s, MH(:m, :T)), 500)
-@test_nothrow sample(model_hmm, Gibbs(cond_hmm_s, HMC(0.01, 10, :m, :T)), 500)
+# cond_hmm_s = StaticConditional(model_hmm, :s)
+# @test_nothrow sample(model_hmm, Gibbs(cond_hmm_s, MH(:m, :T)), 500)
+# @test_nothrow sample(model_hmm, Gibbs(cond_hmm_s, HMC(0.01, 10, :m, :T)), 500)
 
 # let T = [graph_hmm[23].value, graph_hmm[38].value],
 #     m = [graph_hmm[29].value, graph_hmm[44].value],
@@ -244,41 +244,41 @@ cond_hmm_s = StaticConditional(model_hmm, :s)
 
 
 
-# function update_histogram!(histogram, bin)
-#     if bin > length(histogram)
-#         push!(histogram, 1)
-#     else
-#         histogram[bin] += 1
-#     end
+function update_histogram!(histogram, bin)
+    if bin > length(histogram)
+        push!(histogram, 1)
+    else
+        histogram[bin] += 1
+    end
 
-#     return histogram
-# end
+    return histogram
+end
 
-# @model function imm(y, α, ::Type{T}=Vector{Float64}) where {T}
-#     N = length(y)
+@model function imm(y, α, ::Type{T}=Vector{Float64}) where {T}
+    N = length(y)
 
-#     K = 0
-#     nk = Vector{Int}()
-#     z = Vector{Int}(undef, N)
+    K = 0
+    nk = Vector{Int}()
+    z = Vector{Int}(undef, N)
 
-#     for n = 1:N
-#         z[n] ~ ChineseRestaurantProcess(DirichletProcess(α), nk)
-#         nk = update_histogram!(nk, z[n])
-#         K = max(K, z[n])
-#     end
+    for n = 1:N
+        z[n] ~ ChineseRestaurantProcess(DirichletProcess(α), nk)
+        nk = update_histogram!(nk, z[n])
+        K = max(K, z[n])
+    end
 
-#     μ = T(undef, K)
-#     for k = 1:K
-#         μ[k] ~ Normal()
-#     end
+    μ = T(undef, K)
+    for k = 1:K
+        μ[k] ~ Normal()
+    end
 
-#     for n = 1:N
-#         y[n] ~ Normal(μ[z[n]], 1.0)
-#     end
-# end
+    for n = 1:N
+        y[n] ~ Normal(μ[z[n]], 1.0)
+    end
+end
 
-# # data from R. Neal paper
-# model_imm = imm([-1.02, 0.14, 0.51], 10.0)
+# data from R. Neal paper: [-1.48, -1.40, -1.16, -1.08, -1.02, 0.14, 0.51, 0.53, 0.78]
+model_imm = imm([-1.02, 0.14, 0.51], 10.0)
 # graph_imm = trackdependencies(model_imm)
 # @testdependencies(model_imm, z[1], z[2], z[3], μ, y[1], y[2], y[3])
 # @test_nothrow sample(model_imm, Gibbs(AutoConditional(:z), HMC(0.01, 10, :μ)), 2)

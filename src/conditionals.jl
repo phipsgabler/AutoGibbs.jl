@@ -341,51 +341,54 @@ function (c::GibbsConditional{V, L})(θ) where {
 end
 
 
-# # Special treatment for CRP variables: calculate likelihoods as normal for truncated support
-# # (covering all existing clusters), and marginalize the creation of a new cluster
-# function (c::GibbsConditional{V, L})(θ) where {
-#     V<:VarName, L<:LogLikelihood{<:ChineseRestaurantProcess}}
-#     Ω = support(c.base.dist)
-#     Ω_init, Ω_last = Ω[1:end-1], Ω[end]
+# Special treatment for CRP variables: calculate likelihoods as normal for truncated support
+# (covering all existing clusters), and marginalize the creation of a new cluster
+function (c::GibbsConditional{V, L})(θ) where {
+    V<:VarName, L<:LogLikelihood{<:ChineseRestaurantProcess}}
+    Ω = support(c.base.dist)
+    Ω_init, Ω_last = Ω[1:end-1], Ω[end]
 
-#     θs_on_init = fixvalues(θ, c.vn => Ω_init)
-#     logtable_init = Float64[c.base(θ′) + reduce(+, (β(θ′) for (vn, β) in c.blanket), init=0.0)
-#                             for θ′ in θs_on_support]
+    θs_on_init = fixvalues(θ, c.vn => Ω_init)
+    logtable_init = Float64[c.base(θ′) + reduce(+, (β(θ′) for (vn, β) in c.blanket), init=0.0)
+                            for θ′ in θs_on_init]
     
-#     θ_on_last = fixvalues(θ, c.vn => [Ω_last])
-#     log_last = _estimate_last_likelihood(c, θ_on_last)
-#     conditional = DiscreteNonParametric(Ω, softmax!(push!(logtable_init, log_last)))
-#     return conditional
-# end
+    θ_on_last = fixvalue(θ, c.vn => Ω_last)
+    log_last = _estimate_last_likelihood(c, θ_on_last)
+    conditional = DiscreteNonParametric(Ω, softmax!(push!(logtable_init, log_last)))
+    return conditional
+end
 
 
-# """
-# Estimate the "new cluster" likelihood of a CRP, given through
+"""
+Estimate the "new cluster" likelihood of a CRP mixture, given through
 
-#     𝓅(zₙ = K + 1 | z₁, ..., zₙ₋₁, μ, xₙ) ∝ (∏_{i = z ≥ n} 𝓅(zᵢ | z₁,...,zᵢ)) 𝓅(xₙ | zₙ = K + 1, μ),
+    𝓅(zₙ = K + 1 | z₁, ..., zₙ₋₁, μ, xₙ) ∝ (∏_{i = z ≥ n} 𝓅(zᵢ | z₁,...,zᵢ)) 𝓅(xₙ | zₙ = K + 1, μ),
 
-# by approximating
+by approximating
 
-#     𝓅(xₙ | zₙ = K + 1, μ) = ∫ 𝓅(xₙ | μ = m) dm ≈ 𝓅(xₙ | m)
+    𝓅(xₙ | zₙ = K + 1, μ) = ∫ 𝓅(xₙ | μ = m) dm ≈ 𝓅(xₙ | m)
 
-# where Law(m) = Law(μ).
-# """
-# function _estimate_last_likelihood(c, θ)
-#     l = c.base(θ)
+where Law(m) = Law(μ).
+"""
+function _estimate_last_likelihood(c, θ)
+    l = c.base(θ)
     
-#     for (ix, β) in c.blanket
-#         if β isa LogLikelihood{<:ChineseRestaurantProcess} && β.dist.rpm == c.base.rpm
-#             l += β(θ)
-#         else
-            
-#             conditioned_dist = β.f((arg(θ) for arg in β.args)...)
-#             sample = rand(conditioned_dist)
-#             l += logpdf(conditioned_dist, sample)
-#         end
-#     end
+    for (vn, β) in c.blanket
+        if β isa LogLikelihood{<:ChineseRestaurantProcess} && DynamicPPL.subsumes(c.vn, vn)
+            # one of the CRP factors (the 𝓅(zᵢ | ...) for i > n)
+            l += β(θ)
+        else
+            # m = randn()
+            # θ′ = fixvalue(θ, vn => m)
+            θ′ = θ
+            conditioned_dist = β.f((arg(θ′) for arg in β.args)...)
+            sample = rand(conditioned_dist)
+            l += logpdf(conditioned_dist, sample)
+        end
+    end
     
-#     return l
-# end
+    return l
+end
 
 
 (c::GibbsConditional)(θ) =
@@ -393,12 +396,13 @@ end
 
 
 """Produce `|Ω|` copies of `θ` with the `fixedvn` entries fixed to the values in the support `Ω`."""
-function fixvalues(θ, (source_vn, Ω))
+function fixvalue(θ, (source_vn, value))
     # "source" is the value stored in Ω; "target" is the matching value in θ.
 
-    result = [copy(θ) for _ in Ω]
+    # result = [copy(θ) for _ in Ω]
+    θ′ = copy(θ)
     
-    for (θ′, value) in zip(result, Ω)
+    # for (θ′, value) in zip(result, Ω)
         for target_vn in keys(θ′)
             source_subsumes_target = DynamicPPL.subsumes(source_vn, target_vn)
             target_subsumes_source = DynamicPPL.subsumes(target_vn, source_vn)
@@ -438,10 +442,12 @@ function fixvalues(θ, (source_vn, Ω))
                 θ′[target_vn] = target
             end
         end
-    end
+    # end
 
-    return result
+    return θ′
 end
+
+fixvalues(θ, (source_vn, Ω)) = [fixvalue(θ, source_vn => ω) for ω in Ω]
 
 
 _splitindexing(::NTuple{0}) = (), nothing
