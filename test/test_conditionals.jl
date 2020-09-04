@@ -269,6 +269,10 @@ function update_histogram!(histogram, bin)
     return histogram
 end
 
+
+Turing.RandomMeasures.DirichletProcess(α, G₀) = DirichletProcess(α)
+
+
 @model function imm(y, α, ::Type{T}=Vector{Float64}) where {T}
     N = length(y)
 
@@ -276,15 +280,16 @@ end
     nk = Vector{Int}()
     z = Vector{Int}(undef, N)
 
+    G₀ = Normal()
     for n = 1:N
-        z[n] ~ ChineseRestaurantProcess(DirichletProcess(α), nk)
+        z[n] ~ ChineseRestaurantProcess(DirichletProcess(α, G₀), nk)
         nk = update_histogram!(nk, z[n])
         K = max(K, z[n])
     end
 
     μ = T(undef, K)
     for k = 1:K
-        μ[k] ~ Normal()
+        μ[k] ~ G₀
     end
     
     for n = 1:N
@@ -325,14 +330,13 @@ function test_imm()
             l += _pdf(CRP([j == n ? k : z[j] for j = 1:i-1]), z[i])
         end
 
-        
         if k <= K
             # 𝓅(yₙ | zₙ = k, μ)
             l += pdf(Normal(μ[k]), y[n])
         else
             # 𝓅(yₙ | zₙ = K + 1, μ) = ∫ 𝓅(yₙ | m) 𝓅(m) dm
-            m = rand(Normal())
-            l += pdf(Normal(m), y[n])
+            m = rand(Normal(), 100)
+            l += mean(pdf.(Normal.(m), y[n])
         end
 
         return l
