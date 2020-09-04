@@ -25,7 +25,7 @@ macro testdependencies(model, varname_exprs...)
             vns = tuple($(DynamicPPL.varname.(varname_exprs)...))
             
             graph_default = trackdependencies(m)
-            @test varnames(graph_default) == Set{VarName}(vns)
+            @test varnames(graph_default) ⊇ Set{VarName}(vns)
             # @test check_dependencies(graph_default)
         
             # graph_likelihood = track_with_context(m, LikelihoodContext())

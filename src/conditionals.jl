@@ -349,6 +349,7 @@ function (c::GibbsConditional{V, L})(θ) where {
     Ω_init, Ω_last = Ω[1:end-1], Ω[end]
 
     θs_on_init = fixvalues(θ, c.vn => Ω_init)
+    @show θ
     logtable_init = Float64[c.base(θ′) + reduce(+, (β(θ′) for (vn, β) in c.blanket), init=0.0)
                             for θ′ in θs_on_init]
     
@@ -366,7 +367,7 @@ Estimate the "new cluster" likelihood of a CRP mixture, given through
 
 by approximating
 
-    𝓅(xₙ | zₙ = K + 1, μ) = ∫ 𝓅(xₙ | μ = m) dm ≈ 𝓅(xₙ | m)
+    𝓅(xₙ | zₙ = K + 1, μ) = ∫ 𝓅(xₙ, μ[zₙ] = m) dm ≈ 𝓅(xₙ | m)
 
 where Law(m) = Law(μ).
 """
@@ -380,10 +381,10 @@ function _estimate_last_likelihood(c, θ)
         else
             # m = randn()
             # θ′ = fixvalue(θ, vn => m)
-            θ′ = θ
-            conditioned_dist = β.f((arg(θ′) for arg in β.args)...)
-            sample = rand(conditioned_dist)
-            l += logpdf(conditioned_dist, sample)
+            # θ′ = θ
+            # conditioned_dist = β.f((arg(θ′) for arg in β.args)...)
+            # sample = rand(conditioned_dist)
+            # l += logpdf(conditioned_dist, sample)
         end
     end
     

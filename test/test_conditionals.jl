@@ -286,7 +286,7 @@ end
     for k = 1:K
         μ[k] ~ Normal()
     end
-
+    
     for n = 1:N
         y[n] ~ Normal(μ[z[n]], 1.0)
     end
@@ -306,23 +306,45 @@ function test_imm()
 
     # Analytic tests
     z = [graph_imm[19].value, graph_imm[36].value, graph_imm[52].value]
-    μ = [graph_imm[67].value, graph_imm[77].value]
+    μ = [v.value for v in values(graph_imm.statements)
+         if v isa AutoGibbs.Assumption && DynamicPPL.subsumes(@varname(z), v.vn)]
     y = graph_imm[2].value
+    K = graph_imm[55].value
+    N = graph_imm[7].value
 
     CRP(h) = ChineseRestaurantProcess(DirichletProcess(1.0), h)
     _pdf(d, x) = exp(logpdf(d, x))
-    p_z1_1 = _pdf(CRP(z[1:0]), 1) * _pdf(CRP([1]), z[2]) * _pdf(CRP([1, z[2]]), z[3]) * pdf(Normal(μ[1]), y[1])
-    p_z2_1 = _pdf(CRP(z[1:1]), 1) * _pdf(CRP([z[1], 1]), z[3]) * pdf(Normal(μ[1]), y[2])
-    p_z2_2 = _pdf(CRP(z[1:1]), 2) * _pdf(CRP([z[1], 2]), z[3]) * pdf(Normal(μ[2]), y[2])
-    p_z3_1 = _pdf(CRP(z[1:2]), 1) * pdf(Normal(μ[1]), y[3])
-    p_z3_2 = _pdf(CRP(z[1:2]), 2) * pdf(Normal(μ[2]), y[3])
-    p_z3_3 = _pdf(CRP(z[1:2]), 3) * pdf(Normal(μ[3]), y[3])
+
+    # 𝓅(zₙ = k| z₁, ..., zₙ₋₁, μ, yₙ) ∝ (∏_{i = z ≥ n} 𝓅(zᵢ | z₁,...,zᵢ)) 𝓅(yₙ | zₙ, μ)
+    function cond(n, k)
+        # 𝓅(zₙ = k | z₁, ..., zₙ₋₁)
+        l = _pdf(CRP(z[1:n-1]), k)
+
+        # 𝓅(zₙ₊ᵢ | z₁, ..., zₙ₊ᵢ₋₁) for i = n+1 .. N
+        for i = n+1:N
+            l += _pdf(CRP([j == n ? k : z[j] for j = 1:i-1]), z[i])
+        end
+
+        
+        if k <= K
+            # 𝓅(yₙ | zₙ = k, μ)
+            l += pdf(Normal(μ[k]), y[n])
+        else
+            # 𝓅(yₙ | zₙ = K + 1, μ) = ∫ 𝓅(yₙ | m) 𝓅(m) dm
+            m = rand(Normal())
+            l += pdf(Normal(m), y[n])
+        end
+
+        return l
+    end
+    
+    p_z1_1 = cond(1, 1)
+    p_z2_1, p_z2_2 = cond(2, 1), cond(2, 2)
+    p_z3_1, p_z3_2, p_z3_3 = cond(3, 1), cond(3, 2), cond(3, 3)
     Z_1 = p_z1_1
     Z_2 = p_z2_1 + p_z2_2
     Z_3 = p_z3_1 + p_z3_2 + p_z3_3
-
-
-    # 𝓅(zₙ | z₁, ..., zₙ₋₁, μ, xₙ) ∝ (∏_{i = z ≥ n} 𝓅(zᵢ | z₁,...,zᵢ)) 𝓅(xₙ | zₙ, μ)
+    
     analytic_conditionals = [@varname(z[1]) => Categorical([p_z1_1] ./ Z_1),
                              @varname(z[2]) => Categorical([p_z2_1, p_z2_2] ./ Z_2),
                              @varname(z[3]) => Categorical([p_z3_1, p_z3_2, p_z3_3] ./ Z_3)]
@@ -384,3 +406,5 @@ end
 # test_hmm()
 test_imm()
 # test_changepoint()
+
+
