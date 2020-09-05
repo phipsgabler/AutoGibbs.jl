@@ -488,6 +488,8 @@ end
 
 
 
+@nospecialize
+
 function convertcall(graph, node::CallingNode)
     f = convertvalue(graph, getfunction(node))
     args = convertvalue.(Ref(graph), getarguments(node))
@@ -500,15 +502,18 @@ convertvalue(graph, expr::TapeConstant) = getvalue(expr)
 convertdist!(graph, dist_expr::TapeConstant) = Constant(getvalue(dist))
 function convertdist!(graph, dist_expr::TapeReference)
     ref = getmapping(graph, dist_expr[], nothing)
+    
     if haskey(graph, ref)
         # move the separate distribution call into the node and delete it from the graph
         dist = graph[ref]
+        delete!(graph.reference_mapping, dist_expr)
         delete!(graph, ref)
         return dist
     else
         # the distribution node existed, but has already been deleted, so we reconstruct it
         # (obscure case when one distribution reference is sampled from twice)
-        return convertcall(graph, dist_expr[])
+        dist = convertcall(graph, dist_expr[])
+        return dist
     end
 end
 
@@ -542,7 +547,7 @@ function pushtilde!(graph, callingnode, tilde_constructor)
     vn = convertvn!(graph, vn_expr)
     dist = convertdist!(graph, dist_expr)
     value = convertvalue(graph, value_expr)
-
+    
     ref = makereference!(graph, callingnode)
     graph[ref] = tilde_constructor(vn, dist, value, -Inf)
 

@@ -281,6 +281,7 @@ Turing.RandomMeasures.DirichletProcess(α, G₀) = DirichletProcess(α)
     z = Vector{Int}(undef, N)
 
     G₀ = Normal()
+    
     for n = 1:N
         z[n] ~ ChineseRestaurantProcess(DirichletProcess(α, G₀), nk)
         nk = update_histogram!(nk, z[n])
@@ -336,7 +337,7 @@ function test_imm()
         else
             # 𝓅(yₙ | zₙ = K + 1, μ) = ∫ 𝓅(yₙ | m) 𝓅(m) dm
             m = rand(Normal(), 100)
-            l += mean(pdf.(Normal.(m), y[n])
+            l += mean(pdf.(Normal.(m), y[n]))
         end
 
         return l
@@ -403,12 +404,12 @@ end
 #########################################################################
 ### TEST TOGGLES
 
-# test_bernoulli()
-# test_gmm()
-# test_gmm_loopy()
-# test_gmm_shifted()
-# test_hmm()
-test_imm()
+test_bernoulli()
+test_gmm()
+test_gmm_loopy()
+test_gmm_shifted()
+test_hmm()
+# test_imm()
 # test_changepoint()
 
 

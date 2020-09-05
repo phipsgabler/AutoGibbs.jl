@@ -378,6 +378,7 @@ function _estimate_last_likelihood(c, θ)
             # one of the CRP factors (the 𝓅(zᵢ | ...) for i > n)
             l += β(θ)
         else
+            @show β.args[1]
             # m = randn()
             # θ′ = fixvalue(θ, vn => m)
             # θ′ = θ
