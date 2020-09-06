@@ -217,25 +217,25 @@ Base.:(==)(q::Reference, r::Reference) = q.number == r.number
 
 abstract type Statement end
 
-struct Assumption{dotted, TN<:VarName, TDist<:Statement, TVal} <: Statement
+struct Assumption{dotted, TN<:VarName, TVal} <: Statement
     vn::TN
-    dist::TDist
+    dist_ref::Reference
     value::TVal
     logp::Float64
 end
 
-Assumption{dotted}(vn, dist, value, logp) where {dotted} =
-    Assumption{dotted, typeof(vn), typeof(dist), typeof(value)}(vn, dist, value, logp)
+Assumption{dotted}(vn, dist_ref, value, logp) where {dotted} =
+    Assumption{dotted, typeof(vn), typeof(value)}(vn, dist_ref, value, logp)
 
-struct Observation{dotted, TN<:Union{Nothing, VarName}, TDist<:Statement, TVal} <: Statement
+struct Observation{dotted, TN<:Union{Nothing, VarName}, TVal} <: Statement
     vn::TN
-    dist::TDist
+    dist_ref::Reference
     value::TVal
     logp::Float64
 end
 
-Observation{dotted}(vn, dist, value, logp) where {dotted} =
-    Observation{dotted, typeof(vn), typeof(dist), typeof(value)}(vn, dist, value, logp)
+Observation{dotted}(vn, dist_ref, value, logp) where {dotted} =
+    Observation{dotted, typeof(vn), typeof(value)}(vn, dist_ref, value, logp)
 
 struct Call{TD<:Union{Nothing, Tuple{VarName, Reference}}, TF, TArgs<:Tuple, TVal} <: Statement
     definition::TD
@@ -259,15 +259,11 @@ _shortname(d::Type{<:Distribution}) = string(nameof(d))
 _shortname(other) = string(other)
 
 function Base.show(io::IO, stmt::Assumption)
-    print(io, stmt.vn, (isdotted(stmt) ? " .~ " : " ~ "), _shortname(stmt.dist.f), "(")
-    join(io, stmt.dist.args, ", ")
-    print(io, ") → ", stmt.value)
+    print(io, stmt.vn, (isdotted(stmt) ? " .~ " : " ~ "), stmt.dist_ref, " → ", stmt.value)
 end
 function Base.show(io::IO, stmt::Observation)
     print(io, (isnothing(stmt.vn) ? stmt.value : stmt.vn))
-    print(io, (isdotted(stmt) ? " .⩪ " : " ⩪ "), _shortname(stmt.dist.f), "(")
-    join(io, stmt.dist.args, ", ")
-    print(io, ") ← ", stmt.value)
+    print(io, (isdotted(stmt) ? " .⩪ " : " ⩪ "), stmt.dist_ref,  " ← ", stmt.value)
 end
 function Base.show(io::IO, stmt::Call)
     if !isnothing(stmt.definition)
@@ -300,7 +296,7 @@ Return all `Assumption`s (potentially with indexing) that the tilde `stmt` depen
 """
 function parent_variables(graph, stmt::Tilde)
     result = Set{Pair{VarName, Assumption}}()
-    parent_variables!(result, graph, stmt.dist)
+    parent_variables!(result, graph, graph[stmt.dist_ref])
     stmt.value isa Reference && parent_variables!(result, graph, stmt.value)
     return result
 end
@@ -428,12 +424,13 @@ Base.map(f, graph::Graph; init=Vector{eltype(graph)}()) = mapreduce(f, push!; in
 
 getstatements(graph::Graph) = graph.statements
 
+hasmapping(graph::Graph, node) = haskey(graph.reference_mapping, node)
 function getmapping(graph::Graph, node)
     ref = graph.reference_mapping[node]
     return ref
 end
 function getmapping(graph::Graph, node, default)
-    if haskey(graph.reference_mapping, node)
+    if hasmapping(graph, node)
         getmapping(graph, node)
     else
         return default
@@ -442,7 +439,7 @@ end
 setmapping!(graph::Graph, (node, ref)::Pair) = graph.reference_mapping[node] = ref
 
 function deletemapping!(graph::Graph, node)
-    if haskey(graph.reference_mapping, node)
+    if hasmapping(graph, node)
         delete!(graph, getmapping(graph, node))
     end
     return graph
@@ -487,9 +484,6 @@ function Base.show(io::IO, graph::Graph)
 end
 
 
-
-@nospecialize
-
 function convertcall(graph, node::CallingNode)
     f = convertvalue(graph, getfunction(node))
     args = convertvalue.(Ref(graph), getarguments(node))
@@ -501,20 +495,8 @@ convertvalue(graph, expr::TapeConstant) = getvalue(expr)
 
 convertdist!(graph, dist_expr::TapeConstant) = Constant(getvalue(dist))
 function convertdist!(graph, dist_expr::TapeReference)
-    ref = getmapping(graph, dist_expr[], nothing)
-    
-    if haskey(graph, ref)
-        # move the separate distribution call into the node and delete it from the graph
-        dist = graph[ref]
-        delete!(graph.reference_mapping, dist_expr)
-        delete!(graph, ref)
-        return dist
-    else
-        # the distribution node existed, but has already been deleted, so we reconstruct it
-        # (obscure case when one distribution reference is sampled from twice)
-        dist = convertcall(graph, dist_expr[])
-        return dist
-    end
+    ref = getmapping(graph, dist_expr[])
+    return ref
 end
 
 
@@ -545,11 +527,11 @@ end
 function pushtilde!(graph, callingnode, tilde_constructor)
     vn_expr, dist_expr, value_expr, vi_expr = tilde_parameters(callingnode)
     vn = convertvn!(graph, vn_expr)
-    dist = convertdist!(graph, dist_expr)
+    dist_ref = convertdist!(graph, dist_expr)
     value = convertvalue(graph, value_expr)
     
     ref = makereference!(graph, callingnode)
-    graph[ref] = tilde_constructor(vn, dist, value, -Inf)
+    graph[ref] = tilde_constructor(vn, dist_ref, value, -Inf)
 
     if !isnothing(vn)
         indexing_values = tovalue.(Ref(graph), DynamicPPL.getindexing(vn))

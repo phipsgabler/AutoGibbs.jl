@@ -181,7 +181,7 @@ function continuations(graph)
     
     for (ref, stmt) in graph
         if stmt isa Union{Assumption, Observation}
-            dist_stmt = stmt.dist
+            dist_stmt = graph[stmt.dist_ref]
             dist = getvalue(dist_stmt)
             if dist_stmt isa Call
                 f, args = dist_stmt.f, convertarg.(dist_stmt.args)
