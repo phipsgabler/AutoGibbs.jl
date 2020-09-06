@@ -97,7 +97,7 @@ function Base.show(io::IO, t::Transformation)
     print(io, ")")
 end
 
-(t::Transformation)(θ) = t.f((arg(θ) for arg in t.args)...)
+(t::Transformation)(θ) = t.f((deepcopy(arg(θ)) for arg in t.args)...)
 
 function (t::Transformation{typeof(getindex)})(θ)
     # intercept this to simplify getindex(x, i) to direct lookup of x[i]
@@ -106,7 +106,7 @@ function (t::Transformation{typeof(getindex)})(θ)
         actual_vn = VarName(array.vn, (Tuple(ix(θ) for ix in indexing),))
         return _lookup(θ, actual_vn)
     else
-        return t.f((arg(θ) for arg in t.args)...)
+        return t.f((deepcopy(arg(θ)) for arg in t.args)...)
     end
 end
 
@@ -196,7 +196,7 @@ function continuations(graph)
             f, args = stmt.f, convertarg.(stmt.args)
             c[ref] = Transformation(f, args)
         elseif stmt isa Constant
-            c[ref] = Fixed(getvalue(stmt))
+            c[ref] = Fixed(deepcopy(getvalue(stmt)))
         end
     end
 
