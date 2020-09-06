@@ -373,18 +373,30 @@ where Law(m) = Law(μ).
 function _estimate_last_likelihood(c, θ)
     l = c.base(θ)
     
+    rpm = c.base.args[1](θ)
+    if rpm isa DirichletProcess
+        if length(c.base.args[1].args) == 2
+            G₀ = c.base.args[1].args[2](θ)
+        else
+            error("Cannot handle Dirichlet process with constructor $(c.base.args[1])")
+        end
+    else
+        error("Cannot handle CRP based on process $(c.base.args[1])")
+    end
+    
     for (vn, β) in c.blanket
         if β isa LogLikelihood{<:ChineseRestaurantProcess} && DynamicPPL.subsumes(c.vn, vn)
             # one of the CRP factors (the 𝓅(zᵢ | ...) for i > n)
             l += β(θ)
         else
-            @show β.args[1]
+            # the factor of the observed value, 𝓅(xₙ | zₙ == K + 1, μ),
+            # which is what we are actually intested in in this function
             # m = randn()
             # θ′ = fixvalue(θ, vn => m)
             # θ′ = θ
             # conditioned_dist = β.f((arg(θ′) for arg in β.args)...)
             # sample = rand(conditioned_dist)
-            # l += logpdf(conditioned_dist, sample)
+            # l += logpdf(G₀, rand())
         end
     end
     
