@@ -311,50 +311,78 @@ function test_imm()
 
 
     # Analytic tests
-    z = [graph_imm[19].value, graph_imm[36].value, graph_imm[52].value]
+    z = [graph_imm[20].value, graph_imm[37].value, graph_imm[53].value]
     μ = [v.value for v in values(graph_imm.statements)
          if v isa AutoGibbs.Assumption && DynamicPPL.subsumes(@varname(z), v.vn)]
     y = graph_imm[2].value
-    K = graph_imm[55].value
+    K = graph_imm[56].value
     N = graph_imm[7].value
 
-    CRP(h) = ChineseRestaurantProcess(DirichletProcess(1.0), h)
-    _pdf(d, x) = exp(logpdf(d, x))
 
+    CRP(h) = ChineseRestaurantProcess(DirichletProcess(1.0), h)
+    
     # 𝓅(zₙ = k| z₁, ..., zₙ₋₁, μ, yₙ) ∝ (∏_{i = z ≥ n} 𝓅(zᵢ | z₁,...,zᵢ)) 𝓅(yₙ | zₙ, μ)
     function cond(n, k)
         # 𝓅(zₙ = k | z₁, ..., zₙ₋₁)
-        l = _pdf(CRP(z[1:n-1]), k)
+        l = logpdf(CRP(z[1:n-1]), k)
 
-        # 𝓅(zₙ₊ᵢ | z₁, ..., zₙ₊ᵢ₋₁) for i = n+1 .. N
+        # 𝓅(zₙ₊ᵢ | z₁, ..., zₙ = k, ..., zₙ₊ᵢ₋₁) for i = n+1 .. N
         for i = n+1:N
-            l += _pdf(CRP([j == n ? k : z[j] for j = 1:i-1]), z[i])
+            l += logpdf(CRP([j == n ? k : z[j] for j = 1:i-1]), z[i])
         end
 
         if k <= K
             # 𝓅(yₙ | zₙ = k, μ)
-            l += pdf(Normal(μ[k]), y[n])
+            l += logpdf(Normal(μ[k]), y[n])
         else
-            # 𝓅(yₙ | zₙ = K + 1, μ) = ∫ 𝓅(yₙ | m) 𝓅(m) dm
-            m = rand(Normal(), 100)
-            l += mean(pdf.(Normal.(m), y[n]))
+            # 𝓅(yₙ | zₙ = K + 1, μ) = ∫ 𝓅(yₙ | m) 𝓅(m) dm = pdf(G₀, yₙ)
+            l += logpdf(Normal(), y[n])
         end
 
-        return l
+        return exp(l)
+    end
+
+    p_z1 = cond.(1, 1:1)
+    p_z2 = cond.(2, 1:2)
+    p_z3 = cond.(3, 1:3)
+    analytic_conditionals = [@varname(z[1]) => Categorical(p_z1 ./ sum(p_z1)),
+                             @varname(z[2]) => Categorical(p_z2 ./ sum(p_z2)),
+                             @varname(z[3]) => Categorical(p_z3 ./ sum(p_z3))]
+    @info "IMM analytic" analytic_conditionals
+
+
+    # exploiting exchangeability:
+    # 𝓅(zₙ = k| z₁, ..., zₙ₋₁, μ, yₙ) ∝ 𝓅(zₙ | z₋ₙ) 𝓅(yₙ | zₙ, μ)
+    function cond_collapsed(n, k)
+        # nk is the histogram of z without z[k]
+        nk = zeros(Int, N)
+        for i in eachindex(z)
+            i != k && (nk[z[i]] += 1)
+        end
+        
+        l = logpdf(CRP(nk), z[k])
+        
+        if k <= K
+            # 𝓅(yₙ | zₙ = k, μ)
+            l += logpdf(Normal(μ[k]), y[n])
+        else # k == K + 1
+            # 𝓅(yₙ | zₙ = K + 1, μ) = ∫ 𝓅(yₙ | m) 𝓅(m) dm = pdf(G₀, yₙ)
+            l += logpdf(Normal(), y[n])
+        end
+
+        return exp(l)
     end
     
-    p_z1_1 = cond(1, 1)
-    p_z2_1, p_z2_2 = cond(2, 1), cond(2, 2)
-    p_z3_1, p_z3_2, p_z3_3 = cond(3, 1), cond(3, 2), cond(3, 3)
-    Z_1 = p_z1_1
-    Z_2 = p_z2_1 + p_z2_2
-    Z_3 = p_z3_1 + p_z3_2 + p_z3_3
+    p_z1_coll = cond_collapsed.(1, 1:1)
+    p_z2_coll = cond_collapsed.(2, 1:2)
+    p_z3_coll = cond_collapsed.(3, 1:3)
+    analytic_conditionals_coll = [@varname(z[1]) => Categorical(p_z1_coll ./ sum(p_z1_coll)),
+                                  @varname(z[2]) => Categorical(p_z2_coll ./ sum(p_z2_coll)),
+                                  @varname(z[3]) => Categorical(p_z3_coll ./ sum(p_z3_coll))]
+    @info "IMM analytic, collapsed" analytic_conditionals
+
     
-    analytic_conditionals = [@varname(z[1]) => Categorical([p_z1_1] ./ Z_1),
-                             @varname(z[2]) => Categorical([p_z2_1, p_z2_2] ./ Z_2),
-                             @varname(z[3]) => Categorical([p_z3_1, p_z3_2, p_z3_3] ./ Z_3)]
     θ = AutoGibbs.sampled_values(graph_imm)
-    @info "IMM analytic" analytic_conditionals
     
     local calculated_conditionals
     @test_nothrow calculated_conditionals = conditionals(graph_imm, @varname(z))
@@ -404,12 +432,12 @@ end
 #########################################################################
 ### TEST TOGGLES
 
-test_bernoulli()
-test_gmm()
-test_gmm_loopy()
-test_gmm_shifted()
-test_hmm()
-# test_imm()
+# test_bernoulli()
+# test_gmm()
+# test_gmm_loopy()
+# test_gmm_shifted()
+# test_hmm()
+test_imm()
 # test_changepoint()
 
 
