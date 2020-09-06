@@ -313,7 +313,7 @@ function test_imm()
     # Analytic tests
     z = [graph_imm[20].value, graph_imm[37].value, graph_imm[53].value]
     μ = [v.value for v in values(graph_imm.statements)
-         if v isa AutoGibbs.Assumption && DynamicPPL.subsumes(@varname(z), v.vn)]
+         if v isa AutoGibbs.Assumption && DynamicPPL.subsumes(@varname(μ), v.vn)]
     y = graph_imm[2].value
     K = graph_imm[56].value
     N = graph_imm[7].value
