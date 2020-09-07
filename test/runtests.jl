@@ -4,6 +4,7 @@ using AutoGibbs
 using Distributions
 using DynamicPPL
 using Turing, Turing.RandomMeasures
+using Random
 
 
 include("utils.jl")
@@ -16,5 +17,9 @@ include("utils.jl")
 
     @testset "conditionals" begin
         include("test_conditionals.jl")
+        
+        @testset "IMM variants" begin
+            include("test_imms.jl")
+        end
     end
 end
