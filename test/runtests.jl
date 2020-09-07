@@ -5,6 +5,7 @@ using Distributions
 using DynamicPPL
 using Turing, Turing.RandomMeasures
 using Random
+using Libtask
 
 
 include("utils.jl")
@@ -16,7 +17,7 @@ include("utils.jl")
     end
 
     @testset "conditionals" begin
-        include("test_conditionals.jl")
+        # include("test_conditionals.jl")
         
         @testset "IMM variants" begin
             include("test_imms.jl")

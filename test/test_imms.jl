@@ -1,5 +1,6 @@
+# data from R. Neal paper: 
+data = [-1.48, -1.40, -1.16, -1.08, -1.02, 0.14, 0.51, 0.53, 0.78]
 
-###########################################################################
 function update_histogram!(histogram, bin)
     if bin > length(histogram)
         push!(histogram, 1)
@@ -10,10 +11,14 @@ function update_histogram!(histogram, bin)
     return histogram
 end
 
+DP(α, G₀) = DirichletProcess(α)
 
-Turing.RandomMeasures.DirichletProcess(α, G₀) = DirichletProcess(α)
- 
-@model function imm(y, α, ::Type{T}=Vector{Float64}) where {T}
+
+###########################################################################
+# version as this would usually be written in Turing, with the slight
+# modification that we need to associate G₀ with z (to calculate marginals of
+# y for "unobserved clusters")
+@model function imm(y, α, ::Type{T}=TArray{Float64, 1}) where {T}
     N = length(y)
 
     K = 0
@@ -23,15 +28,16 @@ Turing.RandomMeasures.DirichletProcess(α, G₀) = DirichletProcess(α)
     G₀ = Normal()
     
     for n = 1:N
-        z[n] ~ ChineseRestaurantProcess(DirichletProcess(α, G₀), nk)
+        z[n] ~ ChineseRestaurantProcess(DP(α, G₀), nk)
         nk = update_histogram!(nk, z[n])
         K = max(K, z[n])
     end
 
-    μ = T(undef, K)
-    for k = 1:K
-        μ[k] ~ G₀
-    end
+    # μ = T(undef, K)
+    # for k = 1:K
+    #     μ[k] ~ G₀
+    # end
+    μ ~ filldist(K, G₀)
     
     for n = 1:N
         y[n] ~ Normal(μ[z[n]], 1.0)
@@ -39,8 +45,7 @@ Turing.RandomMeasures.DirichletProcess(α, G₀) = DirichletProcess(α)
 end
 
 function test_imm()
-    # data from R. Neal paper: [-1.48, -1.40, -1.16, -1.08, -1.02, 0.14, 0.51, 0.53, 0.78]
-    model_imm = imm([-1.02, 0.14, 0.51], 10.0)
+    model_imm = imm(data[5:7], 10.0)
     graph_imm = trackdependencies(model_imm)
     
     # we leave out the μs, because there might be 1--3 of them
@@ -110,33 +115,32 @@ end
 mutable struct CRP <: Distributions.DiscreteMultivariateDistribution
     N::Int
     α::Float64
-    nk::Vector{Int}
-    K::Int
-    
-    CRP(N, α, G₀) = new(N, α)
 end
 
+CRP(N, α, G₀) = new(N, α)
 Base.show(io::IO, d::CRP) = print(io, "CRP(", d.N, ", ", d.α, ")")
 
+function histogram(d, z)
+    nk = Int[]
+    K = 0
 
-function Distributions.rand(rng::AbstractRNG, d::CRP)
-    d.nk = Int[]
-    d.K = 0
-    z = Vector{Int}(undef, d.N)
-
-    D = ChineseRestaurantProcess(DirichletProcess(d.α), d.nk)
-    
-    for n = 1:d.N
-        z[n] = rand(rng, D)
-        d.nk = update_histogram!(d.nk, z[n])
-        d.K = max(d.K, z[n])
+    for n in 1:d.N
+        nk = update_histogram!(d.nk, z[n])
+        K = max(d.K, z[n])
     end
 
-    return z
+    return kn, K
+end
+
+function Distributions.rand(rng::AbstractRNG, d::CRP)
+    nk = Int[]
+    D = ChineseRestaurantProcess(DirichletProcess(d.α), nk)
+    z = rand(rng, D, d.N)
 end
 
 function Distributions.logpdf(d::CRP, z::AbstractVector{<:Int})
-    D = ChineseRestaurantProcess(DirichletProcess(d.α), d.nk)
+    nk, K = histogram(z)
+    D = ChineseRestaurantProcess(DirichletProcess(d.α), nk)
     return mapreduce(zi -> logpdf(D, zi), +, z; init=0.0)
 end
 
@@ -158,16 +162,31 @@ end
 end
 
 function test_imm_oneshot()
-    # data from R. Neal paper: [-1.48, -1.40, -1.16, -1.08, -1.02, 0.14, 0.51, 0.53, 0.78]
-    model_imm_oneshot = imm_oneshot([-1.02, 0.14, 0.51], 10.0)
+    model_imm_oneshot = imm_oneshot(data[5:7], 10.0)
     graph_imm_oneshot = trackdependencies(model_imm_oneshot)
+    
+    # we leave out the μs, because there might be 1--3 of them
+    @testdependencies(model_imm_oneshot, z[1], z[2], z[3], y[1], y[2], y[3])
+    @test_nothrow sample(model_imm_oneshot, Gibbs(AutoConditional(:z), HMC(0.01, 10, :μ)), 2)
 
-    calculated_conditionals = conditionals(graph_imm_oneshot, @varname(z))
+    # for comparison:
+    # sample(model_imm_oneshot, Gibbs(MH(:z => filldist(Categorical(9), 9)), HMC(0.01, 10, :μ)), 2)
+
+    θ = AutoGibbs.sampled_values(graph_imm_oneshot)
+    
+    local calculated_conditionals
+    @test_nothrow calculated_conditionals = conditionals(graph_imm_oneshot, @varname(z))
+    @info "IMM_ONESHOT calculated" Dict(vn => cond(θ) for (vn, cond) in calculated_conditionals)
+    
+    # for (vn, analytic_conditional) in analytic_conditionals
+    #     # @show vn => probs(calculated_conditionals[vn]), probs(analytic_conditional)
+    #     @test issimilar(calculated_conditionals[vn](θ), analytic_conditional)
+    # end
 end
 
 
 ###########################################################################
-@model function imm_manual(y, α, ::Type{T}=Vector{Float64}) where {T}
+@model function imm_manual(y, α, ::Type{T}=TArray{Float64, 1}) where {T}
     N = length(y)
 
     K = 0
@@ -183,10 +202,11 @@ end
         K = max(K, z[n])
     end
 
-    μ = T(undef, K)
-    for k = 1:K
-        μ[k] ~ G₀
-    end
+    # μ = T(undef, K)
+    # for k = 1:K
+    #     μ[k] ~ G₀
+    # end
+    μ ~ filldist(K, G₀)
     
     for n = 1:N
         y[n] ~ Normal(μ[z[n]], 1.0)
@@ -194,41 +214,59 @@ end
 end
 
 function test_imm_manual()
-    # data from R. Neal paper: [-1.48, -1.40, -1.16, -1.08, -1.02, 0.14, 0.51, 0.53, 0.78]
-    model_imm_manual = imm_manual([-1.02, 0.14, 0.51], 10.0)
+    model_imm_manual = imm_manual(data[5:7], 10.0)
     graph_imm_manual = trackdependencies(model_imm_manual)
+
+    @testdependencies(model_imm, z[1], z[2], z[3], y[1], y[2], y[3])
+    @test_nothrow sample(model_imm, Gibbs(AutoConditional(:z), HMC(0.01, 10, :μ)), 2)
 
     calculated_conditionals = conditionals(graph_imm_manual, @varname(z))
 
+    # log 𝓅(z₁, ..., zₙ)
+    function logpdf_crp(z)
+        N = length(z)
+        l = 0.0
+        nk = Int[]
+        K = 0
+        log_α = log(α)
         
-    # # 𝓅(zₙ = k| z₁, ..., zₙ₋₁, μ, yₙ) ∝ (∏_{i = z ≥ n} 𝓅(zᵢ | z₁,...,zᵢ)) 𝓅(yₙ | zₙ, μ)
-    # function cond(n, k)
-    #     # 𝓅(zₙ = k | z₁, ..., zₙ₋₁)
-    #     l = logpdf(CRP(z[1:n-1]), k)
+        for n = 1:N
+            if z[n] <= K
+                l += log(z[n]) - log(n + α - 1)
+                nk[z[n]] += 1
+            else
+                l += log_α - log(n + α - 1)
+                push!(nk, 1)
+                K += 1
+            end
+            
+        end
+        return l
+    end
+    
+    # 𝓅(zₙ = k| z₁, ..., zₙ₋₁, μ, yₙ) ∝ (∏_{i = z ≥ n} 𝓅(zᵢ | z₁,...,zᵢ)) 𝓅(yₙ | zₙ, μ)
+    function cond(n, k)
+        # 𝓅(zₙ = k | z₁, ..., zₙ₋₁)
+        l = logpdf_crp([j == n ? k : z[j] for j = 1:n])
 
-    #     # 𝓅(zₙ₊ᵢ | z₁, ..., zₙ = k, ..., zₙ₊ᵢ₋₁) for i = n+1 .. N
-    #     for i = n+1:N
-    #         l += logpdf(CRP([j == n ? k : z[j] for j = 1:i-1]), z[i])
-    #     end
+        if k <= K
+            # 𝓅(yₙ | zₙ = k, μ)
+            l += logpdf(Normal(μ[k]), y[n])
+        else
+            # 𝓅(yₙ | zₙ = K + 1, μ) = ∫ 𝓅(yₙ | m) 𝓅(m) dm = pdf(G₀, yₙ)
+            l += logpdf(Normal(), y[n])
+        end
 
-    #     if k <= K
-    #         # 𝓅(yₙ | zₙ = k, μ)
-    #         l += logpdf(Normal(μ[k]), y[n])
-    #     else
-    #         # 𝓅(yₙ | zₙ = K + 1, μ) = ∫ 𝓅(yₙ | m) 𝓅(m) dm = pdf(G₀, yₙ)
-    #         l += logpdf(Normal(), y[n])
-    #     end
+        return exp(l)
+    end
 
-    #     return exp(l)
-    # end
-
-    # p_z1 = cond.(1, 1:1)
-    # p_z2 = cond.(2, 1:2)
-    # p_z3 = cond.(3, 1:3)
-    # analytic_conditionals = [@varname(z[1]) => Categorical(p_z1 ./ sum(p_z1)),
-    #                          @varname(z[2]) => Categorical(p_z2 ./ sum(p_z2)),
-    #                          @varname(z[3]) => Categorical(p_z3 ./ sum(p_z3))]
-    # @info "IMM analytic" analytic_conditionals 
+    p_z1 = cond.(1, 1:1)
+    p_z2 = cond.(2, 1:2)
+    p_z3 = cond.(3, 1:3)
+    analytic_conditionals = [@varname(z[1]) => Categorical(p_z1 ./ sum(p_z1)),
+                             @varname(z[2]) => Categorical(p_z2 ./ sum(p_z2)),
+                             @varname(z[3]) => Categorical(p_z3 ./ sum(p_z3))]
+    @info "IMM analytic" analytic_conditionals 
 end
 
 
@@ -236,6 +274,6 @@ end
 ##########################################################################
 #########################################################################
 ### TEST TOGGLES
-test_imm()
-test_imm_manual()
+# test_imm()
 test_imm_oneshot()
+# test_imm_manual()

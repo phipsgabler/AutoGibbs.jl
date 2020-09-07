@@ -296,11 +296,11 @@ end
 #########################################################################
 ### TEST TOGGLES
 
-# test_bernoulli()
-# test_gmm()
-# test_gmm_loopy()
-# test_gmm_shifted()
-# test_hmm()
-# test_changepoint()
+test_bernoulli()
+test_gmm()
+test_gmm_loopy()
+test_gmm_shifted()
+test_hmm()
+test_changepoint()
 
 

@@ -390,13 +390,10 @@ function _estimate_last_likelihood(c, θ)
             l += β(θ)
         else
             # the factor of the observed value, 𝓅(xₙ | zₙ == K + 1, μ),
-            # which is what we are actually intested in in this function
-            # m = randn()
-            # θ′ = fixvalue(θ, vn => m)
-            # θ′ = θ
-            # conditioned_dist = β.f((arg(θ′) for arg in β.args)...)
-            # sample = rand(conditioned_dist)
-            # l += logpdf(G₀, rand())
+            # which is what we are actually intested in in this function.
+            # this is a real hack: we just assume that this vn must be the likelihood of
+            # the observation, and this has distribution G₀. no checks are done.
+            l += logpdf(G₀, θ[vn])
         end
     end
     
