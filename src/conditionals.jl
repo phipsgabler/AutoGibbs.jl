@@ -366,7 +366,7 @@ Estimate the "new cluster" likelihood of a CRP mixture, given through
 
 by approximating
 
-    𝓅(xₙ | zₙ = K + 1, μ) = ∫ 𝓅(xₙ, μ[zₙ] = m) dm ≈ 𝓅(xₙ | m)
+    𝓅(xₙ | zₙ = K + 1, μ) = ∫ 𝓅(xₙ, μ[zₙ] = m) dm ≈ 𝓅(xₙ | rand(m))
 
 where Law(m) = Law(μ).
 """
