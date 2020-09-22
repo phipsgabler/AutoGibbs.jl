@@ -1,5 +1,7 @@
 # data from R. Neal paper: 
-data = [-1.48, -1.40, -1.16, -1.08, -1.02, 0.14, 0.51, 0.53, 0.78]
+const data_neal = [-1.48, -1.40, -1.16, -1.08, -1.02, 0.14, 0.51, 0.53, 0.78]
+const α_neal = 10.0
+
 
 function update_histogram!(histogram, bin)
     if bin > length(histogram)
@@ -44,12 +46,12 @@ DP(α, G₀) = DirichletProcess(α)
 end
 
 function test_imm()
-    model_imm = imm(data[5:7], 10.0)
+    model_imm = imm(data_neal[5:7], α_neal)
     graph_imm = trackdependencies(model_imm)
     
     # we leave out the μs, because there might be 1--3 of them
     @testdependencies(model_imm, z[1], z[2], z[3], y[1], y[2], y[3])
-    @test_nothrow sample(model_imm, Gibbs(AutoConditional(:z), HMC(0.01, 10, :μ)), 2)
+    # @test_nothrow sample(model_imm, Gibbs(AutoConditional(:z), HMC(0.01, 10, :μ)), 2)
 
     # for comparison:
     # sample(model_imm, Gibbs(MH(:z => filldist(Categorical(9), 9)), HMC(0.01, 10, :μ)), 2)
@@ -64,7 +66,7 @@ function test_imm()
     N = graph_imm[7].value
 
 
-    CRP(h) = ChineseRestaurantProcess(DirichletProcess(1.0), h)
+    CRP(h) = ChineseRestaurantProcess(DirichletProcess(α_neal), h)
 
     # exploiting exchangeability:
     # 𝓅(zₙ | z₋ₙ, μ, yₙ) ∝ 𝓅(zₙ | z₋ₙ) 𝓅(yₙ | zₙ, μ)
@@ -101,7 +103,7 @@ function test_imm()
     
     local calculated_conditionals
     @test_nothrow calculated_conditionals = conditionals(graph_imm, @varname(z))
-    @info "mormal IMM calculated conditionals" Dict(vn => cond(θ) for (vn, cond) in calculated_conditionals)
+    @info "normal IMM calculated conditionals" Dict(vn => cond(θ) for (vn, cond) in calculated_conditionals)
     
     for (vn, analytic_conditional) in analytic_conditionals
         # @show vn => probs(calculated_conditionals[vn]), probs(analytic_conditional)
@@ -162,7 +164,7 @@ end
 end
 
 function test_imm_oneshot()
-    model_imm_oneshot = imm_oneshot(data[5:7], 10.0)
+    model_imm_oneshot = imm_oneshot(data_neal[5:7], α_neal)
     graph_imm_oneshot = trackdependencies(model_imm_oneshot)
     
     # we leave out the μs, because there might be 1--3 of them
@@ -213,7 +215,7 @@ end
 end
 
 function test_imm_manual()
-    model_imm_manual = imm_manual(data[5:7], 10.0)
+    model_imm_manual = imm_manual(data_neal[5:7], α_neal)
     graph_imm_manual = trackdependencies(model_imm_manual)
 
     @testdependencies(model_imm_manual, z[1], z[2], z[3], y[1], y[2], y[3])
@@ -280,5 +282,5 @@ end
 #########################################################################
 ### TEST TOGGLES
 test_imm()
-test_imm_oneshot()
-test_imm_manual()
+# test_imm_oneshot()
+# test_imm_manual()

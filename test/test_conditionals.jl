@@ -267,7 +267,7 @@ end
     τ ~ DiscreteUniform(1, N)
     
     for n in 1:N
-        y[n] ~ Poisson(τ > N ? λ₁ : λ₂)
+        y[n] ~ Poisson(τ > n ? λ₁ : λ₂)
     end
 end
 

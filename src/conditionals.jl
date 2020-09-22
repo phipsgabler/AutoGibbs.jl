@@ -160,13 +160,14 @@ function continuations(graph)
                 return Variable(stmt.vn)
             elseif cont isa Transformation{typeof(getindex)} && !isnothing(stmt.definition)
                 # two cases:
-                # - vn[ix] = getindex(<a>, ix) where <a> = vn ~ D: then we keep getindex(θ[a], ix)
+                # - vn[ix] = getindex(<a>, ix) where <a> = vn ~ D: then we keep getindex(θ[vn], ix)
                 #   (the whole array was sampled by the tilde)
                 # - vn[ix] = getindex(<a>, ix) where <scalar> = vn[ix] ~ D: then we rewrite to
-                # `getindex(θ[a], ix)`  (the array element was sampled individually)
+                #   `θ[vn[ix]]`  (the array element was sampled individually)
                 # this truncation is realized by `_init`, which discards the last element of a tuple,
                 # and maps the empty tuple to itself.
-                location, ref = stmt.definition
+                vn, ref = stmt.definition
+                ref_vn = graph[ref].vn
                 array, ix = stmt.args[1], stmt.args[2:end]
                 parent_vn = VarName(graph[ref].vn, _init(DynamicPPL.getindexing(graph[ref].vn)))
                 parent_array = Variable(parent_vn)
@@ -347,8 +348,19 @@ function (c::GibbsConditional{V, L})(θ) where {
     V<:VarName, L<:LogLikelihood{<:ChineseRestaurantProcess}}
     Ω = support(c.base.dist)
     Ω_init, Ω_last = Ω[1:end-1], Ω[end]
-
+    # @show c.vn
+    # @show Ω_init, Ω_last
+    
     θs_on_init = fixvalues(θ, c.vn => Ω_init)
+
+    # @show θs_on_init
+
+    # t = [reduce(+, (β(θ′) for (vn, β) in c.blanket), init=0.0)
+         # for θ′ in θs_on_init]
+    # display(c.blanket)
+    # @show [vn for (vn, β) in c.blanket for θ′ in θs_on_init]
+    # println()
+    
     logtable_init = Float64[c.base(θ′) + reduce(+, (β(θ′) for (vn, β) in c.blanket), init=0.0)
                             for θ′ in θs_on_init]
     
