@@ -113,44 +113,10 @@ end
 
 
 ###########################################################################
-mutable struct CRP <: Distributions.DiscreteMultivariateDistribution
-    N::Int
-    α::Float64
-end
-
-CRP(N, α, G₀) = CRP(N, α)
-Base.show(io::IO, d::CRP) = print(io, "CRP(", d.N, ", ", d.α, ")")
-
-function histogram(d, z)
-    nk = Int[]
-    K = 0
-
-    for n in 1:d.N
-        nk = update_histogram!(nk, z[n])
-        K = max(K, z[n])
-    end
-
-    return nk, K
-end
-
-function Distributions.rand(rng::AbstractRNG, d::CRP)
-    nk = Int[]
-    D = ChineseRestaurantProcess(DirichletProcess(d.α), nk)
-    z = rand(rng, D, d.N)
-end
-
-function Distributions.logpdf(d::CRP, z::AbstractVector{<:Int})
-    nk, K = histogram(d, z)
-    D = ChineseRestaurantProcess(DirichletProcess(d.α), nk)
-    return mapreduce(zi -> logpdf(D, zi), +, z; init=0.0)
-end
-
-
 @model function imm_oneshot(y, α, ::Type{T}=Array{Float64, 1}) where {T}
     N = length(y)
-
     G₀ = Normal()
-    z ~ CRP(N, α, G₀)
+    z ~ AutoGibbs.CRP(N, α, G₀)
     K = maximum(z)
 
     μ = T(undef, K)
@@ -174,6 +140,46 @@ function test_imm_oneshot()
     # for comparison:
     # sample(model_imm_oneshot, Gibbs(MH(:z => filldist(Categorical(9), 9)), HMC(0.01, 10, :μ)), 2)
 
+    # Analytic tests
+    z = graph_imm_oneshot[10].value
+    μ = [v.value for v in values(graph_imm_oneshot.statements)
+         if v isa AutoGibbs.Assumption && DynamicPPL.subsumes(@varname(μ), v.vn)]
+    y = graph_imm_oneshot[2].value
+    K = graph_imm_oneshot[11].value
+    N = graph_imm_oneshot[7].value
+
+    CRP(h) = ChineseRestaurantProcess(DirichletProcess(α_neal), h)
+
+    # exploiting exchangeability:
+    # 𝓅(zₙ | z₋ₙ, μ, yₙ) ∝ 𝓅(zₙ | z₋ₙ) 𝓅(yₙ | zₙ, μ)
+    function cond_collapsed(n, k)
+        # nk is the histogram of z without z[k]
+        nk = zeros(Int, N)
+        for i in eachindex(z)
+            i != k && (nk[z[i]] += 1)
+        end
+        
+        l = logpdf(CRP(nk), z[k])
+        
+        if k <= K
+            # 𝓅(yₙ | zₙ = k, μ)
+            l += logpdf(Normal(μ[k]), y[n])
+        else # k == K + 1
+            # 𝓅(yₙ | zₙ = K + 1, μ) = ∫ 𝓅(yₙ | m) 𝓅(m) dm = pdf(G₀, yₙ)
+            l += logpdf(Normal(), y[n])
+        end
+
+        return exp(l)
+    end
+    
+    p_z1_coll = cond_collapsed.(1, 1:1)
+    p_z2_coll = cond_collapsed.(2, 1:2)
+    p_z3_coll = cond_collapsed.(3, 1:3)
+    analytic_conditionals = [@varname(z[1]) => Categorical(p_z1_coll ./ sum(p_z1_coll)),
+                             @varname(z[2]) => Categorical(p_z2_coll ./ sum(p_z2_coll)),
+                             @varname(z[3]) => Categorical(p_z3_coll ./ sum(p_z3_coll))]
+    @info "normal IMM analytic conditionals (collapsed)" analytic_conditionals
+    
     # θ = AutoGibbs.sampled_values(graph_imm_oneshot)
     
     # local calculated_conditionals

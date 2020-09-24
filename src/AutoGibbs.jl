@@ -6,7 +6,7 @@ include("plotting.jl")
 include("conditionals.jl")
 include("auto_conditional.jl")
 include("static_conditional.jl")
-
+include("crp.jl")
 
 export trackdependencies
 
