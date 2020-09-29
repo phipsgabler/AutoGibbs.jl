@@ -56,8 +56,8 @@ function test_imm_stick()
     
     # we leave out the μs, because there might be 1--3 of them
     @testdependencies(model_imm_stick,
-                      v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], # 10 - 1 sticks
-                      μ[1], μ[2], μ[3], μ[4], μ[5], μ[6], μ[7], μ[8], μ[9], μ[10], # 10 cluster centers
+                      v, # 10 - 1 sticks
+                      μ, # 10 cluster centers
                       z[1], z[2], z[3], z[4], z[5], z[6], z[7], z[8], z[9], # 9 data points
                       y[1], y[2], y[3], y[4], y[5], y[6], y[7], y[8], y[9])
     cond_imm_stick = StaticConditional(model_imm_stick, :z)
@@ -75,22 +75,21 @@ function test_imm_stick()
     α = graph_imm_stick[4].value
 
     D_w = Categorical(stickbreak(v))
-    p_z = [logpdf(D_w, z) + logpdf(Normal(μ[z]), y[n]) for z = 1:K, n = 1:N]
     analytic_conditionals = map(1:N) do n
-        p̃ = [logpdf(D_w, z) + logpdf(Normal(μ[z]), y[n]) for z = 1:K]
+        p̃ = [exp(logpdf(D_w, z) + logpdf(Normal(μ[z]), y[n])) for z = support(D_w)]
         @varname(z[n]) => Categorical(p̃ ./ sum(p̃))
     end
-    @info "stick-breaking IMM analytic conditionals" analytic_conditionals
+    # @info "stick-breaking IMM analytic conditionals" analytic_conditionals
     
     θ = AutoGibbs.sampled_values(graph_imm_stick)
     
     local calculated_conditionals
     @test_nothrow calculated_conditionals = conditionals(graph_imm_stick, @varname(z))
-    @info "stick-breaking IMM calculated conditionals" Dict(
-        vn => cond(θ) for (vn, cond) in calculated_conditionals)
+    # @info "stick-breaking IMM calculated conditionals" Dict(
+        # vn => cond(θ) for (vn, cond) in calculated_conditionals)
     
     for (vn, analytic_conditional) in analytic_conditionals
-        # @show vn => probs(calculated_conditionals[vn]), probs(analytic_conditional)
+        # @show vn => probs(calculated_conditionals[vn](θ)), probs(analytic_conditional)
         @test issimilar(calculated_conditionals[vn](θ), analytic_conditional)
     end
 end
