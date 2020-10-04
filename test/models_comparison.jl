@@ -1,15 +1,4 @@
-@model function bernoulli_mixture(x)
-    # Mixture prior.
-    w ~ Dirichlet(2, 1.0)
-
-    # Latent probability.
-    p ~ DiscreteNonParametric([0.3, 0.7], w)
-
-    # Observation.
-    x ~ Bernoulli(p)
-end
-
-@model function gmm(x, K)
+@model function gmm_tarray(x, K)
     N = length(x)
     
     # Cluster centers.
@@ -19,36 +8,19 @@ end
     w ~ Dirichlet(K, 1.0)
 
     # Cluster assignments.
-    z ~ filldist(DiscreteNonParametric(1:K, w), N)
-
+    z = tzeros(Int, N)
+    for n = 1:N
+        z[n] ~ DiscreteNonParametric(1:K, w)
+    end
+    
     # Observations.
     for n = 1:N
         x[n] ~ Normal(μ[z[n]], 1.0)
     end
 end
 
-@model function gmm_loopy(x, K, ::Type{T}=Float64) where {T<:Real}
-    N = length(x)
-
-    # Cluster centers.
-    μ = Vector{T}(undef, K)
-    for k = 1:K
-        μ[k] ~ Normal()
-    end
-
-    # Cluster association prior.
-    w ~ Dirichlet(K, 1.0)
-
-    # Cluster assignments & observations.
-    z = Vector{Int}(undef, N)
-    for n = 1:N
-        z[n] ~ DiscreteNonParametric(1:K, w)
-        x[n] ~ Normal(μ[z[n]], 1.0)
-    end
-end
-
 # same as gmm_loopy, but with an affine transformation on μ.
-@model function gmm_shifted(x, K, ::Type{T}=Float64) where {T<:Real}
+@model function gmm_shifted_tarray(x, K, ::Type{T}=Float64) where {T<:Real}
     N = length(x)
 
     # Cluster centers.
@@ -61,7 +33,7 @@ end
     w ~ Dirichlet(K, 1.0)
 
     # Cluster assignments & observations.
-    z = Vector{Int}(undef, N)
+    z = tzeros(undef, N)
     for n = 1:N
         z[n] ~ DiscreteNonParametric(1:K, w)
         x[n] ~ Normal(4μ[z[n]] - 1, 1.0)
@@ -69,11 +41,11 @@ end
 end
 
 # K clusters, each one around i for i = 1:K with variance 0.5
-@model function hmm(x, K, ::Type{T}=Float64) where {T<:Real}
+@model function hmm_tarray(x, K, ::Type{T}=Float64) where {T<:Real}
     N = length(x)
 
     # State sequence.
-    s = zeros(Int, N)
+    s = tzeros(Int, N)
 
     # Emission matrix.
     m = Vector{T}(undef, K)
@@ -99,30 +71,6 @@ end
     end
 end
 
-@model function changepoint(y)
-    N = length(y)
-    α = 1 / mean(y)
-    λ₁ ~ Exponential(α)
-    λ₂ ~ Exponential(α)
-    τ ~ DiscreteUniform(1, N)
-    
-    for n in 1:N
-        y[n] ~ Poisson(τ > n ? λ₁ : λ₂)
-    end
-end
-
-# @model function reverse_deps(x)
-#     m = Vector{Float64}(undef, 2)
-#     m[1] ~ Normal()
-#     m[2] ~ Normal()
-#     x ~ MvNormal(m)
-# end
-
-
-###########################################################################
-# data from R. Neal paper: 
-const data_neal = [-1.48, -1.40, -1.16, -1.08, -1.02, 0.14, 0.51, 0.53, 0.78]
-const α_neal = 10.0
 
 function stickbreak(v)
     K = length(v) + 1
@@ -139,16 +87,19 @@ function stickbreak(v)
     end
 end
 
-# from https://luiarthur.github.io/TuringBnpBenchmarks/dpsbgmm
-@model function imm_stick(y, α, K, ::Type{T}=Float64) where {T<:Real}
+@model function imm_stick_tarray(y, α, K, ::Type{T}=Float64) where {T<:Real}
     N = length(y)
     crm = DirichletProcess(α)
 
-    v ~ filldist(StickBreakingProcess(crm), K - 1)
+    # Stick weights
+    v = Vector{T}(undef, K - 1)
+    for i = 1:K-1
+        v[i] ~ StickBreakingProcess(crm)
+    end
     w = stickbreak(v)
-    
+
     # Cluster assignments
-    z = zeros(Int, N)
+    z = tzeros(Int, N)
     for n = 1:N
         z[n] ~ Categorical(w)
     end
@@ -165,5 +116,3 @@ end
         y[n] ~ Normal(μ[z[n]], 1.0)
     end
 end
-
-
