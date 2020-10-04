@@ -185,7 +185,7 @@ function continuations(graph)
             dist_stmt = graph[stmt.dist_ref]
             dist = getvalue(dist_stmt)
             if dist_stmt isa Call
-                f, args = convertarg(dist_stmt.f), convertarg.(dist_stmt.args)
+                f, args = dist_stmt.f, convertarg.(dist_stmt.args)
             elseif f isa Constant
                 # fake a constant here... `getindex(Ref(x)) == x`
                 f = getindex
