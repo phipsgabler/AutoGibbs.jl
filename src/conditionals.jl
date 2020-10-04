@@ -185,7 +185,7 @@ function continuations(graph)
             dist_stmt = graph[stmt.dist_ref]
             dist = getvalue(dist_stmt)
             if dist_stmt isa Call
-                f, args = dist_stmt.f, convertarg.(dist_stmt.args)
+                f, args = convertarg(dist_stmt.f), convertarg.(dist_stmt.args)
             elseif f isa Constant
                 # fake a constant here... `getindex(Ref(x)) == x`
                 f = getindex
@@ -195,7 +195,11 @@ function continuations(graph)
             c[ref] = LogLikelihood(dist, f, args, value)
         elseif stmt isa Call
             f, args = stmt.f, convertarg.(stmt.args)
-            c[ref] = Transformation(f, args)
+            if f isa Reference
+                c[ref] = Transformation(((f, t...) -> f(t...)), (convertarg(f), args...))
+            else
+                c[ref] = Transformation(f, args)
+            end
         elseif stmt isa Constant
             c[ref] = Fixed(deepcopy(getvalue(stmt)))
         end
