@@ -1,13 +1,5 @@
-@model function bernoulli_mixture(x)
-    # Mixture prior.
-    w ~ Dirichlet(2, 1.0)
+include("models.jl")
 
-    # Latent probability.
-    p ~ DiscreteNonParametric([0.3, 0.7], w)
-
-    # Observation.
-    x ~ Bernoulli(p)
-end
 
 function test_bernoulli()
     model_bernoulli = bernoulli_mixture(false)
@@ -37,25 +29,6 @@ function test_bernoulli()
     @test issimilar(calculated_conditional(θ), analytic_conditional)
 end
 
-
-###########################################################################
-@model function gmm(x, K)
-    N = length(x)
-    
-    # Cluster centers.
-    μ ~ filldist(Normal(), K)
-
-    # Cluster association prior.
-    w ~ Dirichlet(K, 1.0)
-
-    # Cluster assignments.
-    z ~ filldist(DiscreteNonParametric(1:K, w), N)
-
-    # Observations.
-    for n = 1:N
-        x[n] ~ Normal(μ[z[n]], 1.0)
-    end
-end
 
 function test_gmm()
     model_gmm = gmm([0.1, -0.05, 1.0], 2)
@@ -89,27 +62,6 @@ function test_gmm()
     @test issimilar(calculated_conditional(θ), Product([D for (vn, D) in analytic_conditionals]))
 end
 
-
-###########################################################################
-@model function gmm_loopy(x, K, ::Type{T}=Float64) where {T<:Real}
-    N = length(x)
-
-    # Cluster centers.
-    μ = Vector{T}(undef, K)
-    for k = 1:K
-        μ[k] ~ Normal()
-    end
-
-    # Cluster association prior.
-    w ~ Dirichlet(K, 1.0)
-
-    # Cluster assignments & observations.
-    z = Vector{Int}(undef, N)
-    for n = 1:N
-        z[n] ~ DiscreteNonParametric(1:K, w)
-        x[n] ~ Normal(μ[z[n]], 1.0)
-    end
-end
 
 function test_gmm_loopy()
     model_gmm_loopy = gmm_loopy([0.1, -0.05, 1.0], 2)
@@ -146,28 +98,6 @@ function test_gmm_loopy()
 end
 
 
-###########################################################################
-# same as gmm_loopy, but with an affine transformation on μ.
-@model function gmm_shifted(x, K, ::Type{T}=Float64) where {T<:Real}
-    N = length(x)
-
-    # Cluster centers.
-    μ = Vector{T}(undef, K)
-    for k = 1:K
-        μ[k] ~ Normal()
-    end
-
-    # Cluster association prior.
-    w ~ Dirichlet(K, 1.0)
-
-    # Cluster assignments & observations.
-    z = Vector{Int}(undef, N)
-    for n = 1:N
-        z[n] ~ DiscreteNonParametric(1:K, w)
-        x[n] ~ Normal(4μ[z[n]] - 1, 1.0)
-    end
-end
-
 function test_gmm_shifted()
     model_gmm_shifted = gmm_shifted([0.1, -0.05, 1.0], 2)
     graph_gmm_shifted = trackdependencies(model_gmm_shifted)
@@ -175,39 +105,6 @@ function test_gmm_shifted()
     cond_gmm_shifted_z = StaticConditional(model_gmm_shifted, :z)
     @test_nothrow sample(model_gmm_shifted, Gibbs(cond_gmm_shifted_z, MH(:w, :μ)), 500)
     @test_nothrow sample(model_gmm_shifted, Gibbs(cond_gmm_shifted_z, HMC(0.01, 10, :w, :μ)), 500)
-end
-
-
-###########################################################################
-# K clusters, each one around i for i = 1:K with variance 0.5
-@model function hmm(x, K, ::Type{T}=Float64) where {T<:Real}
-    N = length(x)
-
-    # State sequence.
-    s = zeros(Int, N)
-
-    # Emission matrix.
-    m = Vector{T}(undef, K)
-
-    # Transition matrix.
-    T = Vector{Vector{T}}(undef, K)
-
-    # Assign distributions to each element
-    # of the transition matrix and the
-    # emission matrix.
-    for i = 1:K
-        T[i] ~ Dirichlet(K, 1.0)
-        m[i] ~ Normal(i, 0.5)
-    end
-    
-    # Observe each point of the input.
-    s[1] ~ Categorical(K)
-    x[1] ~ Normal(m[s[1]], 0.1)
-
-    for i = 2:N
-        s[i] ~ Categorical(T[s[i-1]])
-        x[i] ~ Normal(m[s[i]], 0.1)
-    end
 end
 
 
@@ -258,49 +155,75 @@ function test_hmm()
 end
 
 
-###########################################################################
-@model function changepoint(y)
-    N = length(y)
-    α = 1 / mean(y)
-    λ₁ ~ Exponential(α)
-    λ₂ ~ Exponential(α)
-    τ ~ DiscreteUniform(1, N)
+function test_imm_stick()
+    model_imm_stick = imm_stick(data_neal, α_neal, 10)
+    graph_imm_stick = trackdependencies(model_imm_stick)
     
-    for n in 1:N
-        y[n] ~ Poisson(τ > n ? λ₁ : λ₂)
+    # we leave out the μs, because there might be 1--3 of them
+    @testdependencies(model_imm_stick,
+                      v, # 10 - 1 sticks
+                      μ, # 10 cluster centers
+                      z, # 9 data points
+                      y[1], y[2], y[3], y[4], y[5], y[6], y[7], y[8], y[9])
+    cond_imm_stick = StaticConditional(model_imm_stick, :z)
+    @test_nothrow sample(model_imm_stick, Gibbs(cond_imm_stick, MH(:μ, :v)), 500)
+    @test_nothrow sample(model_imm_stick, Gibbs(cond_imm_stick, HMC(0.01, 10, :μ, :v)), 500)
+
+    # Analytic tests
+    v = graph_imm_stick[12].value
+    z = graph_imm_stick[16].value
+    μ = graph_imm_stick[19].value
+    # z = [v.value for v in values(graph_imm_stick.statements)
+    #      if v isa AutoGibbs.Assumption && DynamicPPL.subsumes(@varname(z), v.vn)]
+    y = graph_imm_stick[2].value
+    K = graph_imm_stick[6].value
+    N = graph_imm_stick[7].value
+    α = graph_imm_stick[4].value
+
+    D_w = Categorical(stickbreak(v))
+    analytic_conditionals = map(1:N) do n
+        p̃ = [exp(logpdf(D_w, z) + logpdf(Normal(μ[z], 1.0), y[n])) for z in support(D_w)]
+        @varname(z[n]) => Categorical(p̃ ./ sum(p̃))
     end
+    analytic_conditional = Product([D for (vn, D) in analytic_conditionals])
+    # @info "stick-breaking IMM analytic conditionals" analytic_conditionals
+    
+    θ = AutoGibbs.sampled_values(graph_imm_stick)
+    
+    local calculated_conditionals
+    @test_nothrow calculated_conditionals = conditionals(graph_imm_stick, @varname(z))
+    # @info "stick-breaking IMM calculated conditionals" Dict(
+        # vn => cond(θ) for (vn, cond) in calculated_conditionals)
+
+    @test issimilar(calculated_conditionals[@varname(z)](θ), analytic_conditional)
 end
+
 
 function test_changepoint()
     model_changepoint = changepoint([1.1, 0.9, 0.2])
     graph_changepoint = trackdependencies(model_changepoint)
     @testdependencies(model_changepoint, λ₁, λ₂, τ, y[1], y[2], y[3])
-    @test_nothrow sample(model_changepoint, Gibbs(AutoConditional(:τ), MH(:λ₁, :λ₂)), 2)
+    @test_nothrow sample(model_changepoint, Gibbs(AutoConditional(:τ), MH(:λ₁, :λ₂)), 500)
 end
 
 
-###########################################################################
-# @model function reverse_deps(x)
-#     m = Vector{Float64}(undef, 2)
-#     m[1] ~ Normal()
-#     m[2] ~ Normal()
-#     x ~ MvNormal(m)
+# function test_reverseps()
+#     model_reverse_deps = reverse_deps([0.1, -0.2])
+#     graph_reverse_deps = trackdependencies(model_reverse_deps)
+#     @testdependencies(model_reverse_deps, m[1], m[2], x)
 # end
-
-# model_reverse_deps = reverse_deps([0.1, -0.2])
-# graph_reverse_deps = trackdependencies(model_reverse_deps)
-# @testdependencies(model_reverse_deps, m[1], m[2], x)
 
 
 ##########################################################################
 #########################################################################
 ### TEST TOGGLES
 
-test_bernoulli()
-test_gmm()
-test_gmm_loopy()
-test_gmm_shifted()
-test_hmm()
-test_changepoint()
+# test_bernoulli()
+# test_gmm()
+# test_gmm_loopy()
+# test_gmm_shifted()
+# test_hmm()
+test_imm_stick()
+# test_changepoint()
 
 
