@@ -2,7 +2,7 @@ include("models.jl")
 
 
 function test_bernoulli()
-    model_bernoulli = bernoulli_mixture(false)
+    model_bernoulli = bernoulli_example()
     graph_bernoulli = trackdependencies(model_bernoulli)
     @testdependencies(model_bernoulli, w, p, x)
     cond_bernoulli_p = StaticConditional(model_bernoulli, :p)
@@ -31,7 +31,7 @@ end
 
 
 function test_gmm()
-    model_gmm = gmm([0.1, -0.05, 1.0], 2)
+    model_gmm = gmm_example()
     graph_gmm = trackdependencies(model_gmm)
     @testdependencies(model_gmm, μ, w, z, x[1], x[2], x[3])
     cond_gmm_z = StaticConditional(model_gmm, :z)
@@ -109,7 +109,7 @@ end
 
 
 function test_hmm()
-    model_hmm = hmm([1.1, 0.95, 2.2], 2)
+    model_hmm = hmm_example()
     graph_hmm = trackdependencies(model_hmm)
     @testdependencies(model_hmm, T[1], T[2], m[1], m[2], s[1], s[2], s[3], x[1], x[2], x[3])
     cond_hmm_s = StaticConditional(model_hmm, :s)
@@ -156,7 +156,7 @@ end
 
 
 function test_imm_stick()
-    model_imm_stick = imm_stick(data_neal, α_neal, 10)
+    model_imm_stick = imm_stick_example()
     graph_imm_stick = trackdependencies(model_imm_stick)
     
     # we leave out the μs, because there might be 1--3 of them
@@ -224,11 +224,11 @@ end
 #########################################################################
 ### TEST TOGGLES
 
-# test_bernoulli()
-# test_gmm()
-# test_gmm_loopy()
-# test_gmm_shifted()
-# test_hmm()
+test_bernoulli()
+test_gmm()
+test_gmm_loopy()
+test_gmm_shifted()
+test_hmm()
 test_imm_stick()
 test_changepoint()
 

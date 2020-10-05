@@ -9,6 +9,9 @@
     x ~ Bernoulli(p)
 end
 
+bernoulli_example(x = false) = bernoulli_mixture(x)
+
+
 @model function gmm(x, K)
     N = length(x)
     
@@ -26,6 +29,9 @@ end
         x[n] ~ Normal(μ[z[n]], 1.0)
     end
 end
+
+gmm_example(x = [0.1, -0.05, 1.0], K = 2) = gmm(x, K)
+
 
 @model function gmm_loopy(x, K, ::Type{T}=Float64) where {T<:Real}
     N = length(x)
@@ -99,6 +105,9 @@ end
     end
 end
 
+hmm_example(x = [1.1, 0.95, 2.2], K = 2) = hmm(x, K)
+
+
 @model function changepoint(y)
     N = length(y)
     α = 1 / mean(y)
@@ -162,5 +171,7 @@ end
         y[n] ~ Normal(μ[z[n]], 1.0)
     end
 end
+
+imm_stick_example(y = data_neal, α = α_neal, K = 10) = imm_stick(y, α, K)
 
 

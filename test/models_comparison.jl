@@ -19,26 +19,8 @@
     end
 end
 
-# same as gmm_loopy, but with an affine transformation on μ.
-@model function gmm_shifted_tarray(x, K, ::Type{T}=Float64) where {T<:Real}
-    N = length(x)
+gmm_tarray_example(x = [0.1, -0.05, 1.0], K = 2) = gmm_tarray(x, K)
 
-    # Cluster centers.
-    μ = Vector{T}(undef, K)
-    for k = 1:K
-        μ[k] ~ Normal()
-    end
-
-    # Cluster association prior.
-    w ~ Dirichlet(K, 1.0)
-
-    # Cluster assignments & observations.
-    z = tzeros(undef, N)
-    for n = 1:N
-        z[n] ~ DiscreteNonParametric(1:K, w)
-        x[n] ~ Normal(4μ[z[n]] - 1, 1.0)
-    end
-end
 
 # K clusters, each one around i for i = 1:K with variance 0.5
 @model function hmm_tarray(x, K, ::Type{T}=Float64) where {T<:Real}
@@ -70,6 +52,8 @@ end
         x[i] ~ Normal(m[s[i]], 0.1)
     end
 end
+
+hmm_tarray_example(x = [0.1, -0.05, 1.0], K = 2) = hmm_tarray(x, K)
 
 
 function stickbreak(v)
@@ -109,3 +93,5 @@ end
         y[n] ~ Normal(μ[z[n]], 1.0)
     end
 end
+
+imm_stick_tarray_example(y = data_neal, α = α_neal, K = 10) = imm_stick_tarray()
