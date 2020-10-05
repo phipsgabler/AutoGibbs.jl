@@ -6,6 +6,7 @@ using DynamicPPL
 using Turing, Turing.RandomMeasures
 using Random
 using Libtask
+using MCMCDebugging
 
 
 include("utils.jl")
@@ -22,5 +23,7 @@ include("utils.jl")
         # @testset "IMM variants" begin
             # include("test_imms.jl")
         # end
+
+        # include("geweke_tests.jl")
     end
 end
