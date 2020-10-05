@@ -2,6 +2,7 @@
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 DynamicPPL = "366bfd00-2699-11ea-058f-f148b4cae6d8"
 Libtask = "6f1fad26-d15e-5dc8-ae53-837a1d7b8c9f"
+MCMCDebugging = "6d524b87-5f90-4494-b601-374a5b87a94b"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
