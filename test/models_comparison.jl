@@ -1,6 +1,6 @@
 @model function gmm_tarray(x, K)
     N = length(x)
-    
+
     # Cluster centers.
     μ ~ filldist(Normal(), K)
 
@@ -9,12 +9,10 @@
 
     # Cluster assignments.
     z = tzeros(Int, N)
-    for n = 1:N
-        z[n] ~ DiscreteNonParametric(1:K, w)
-    end
-    
+
     # Observations.
     for n = 1:N
+        z[n] ~ DiscreteNonParametric(1:K, w)
         x[n] ~ Normal(μ[z[n]], 1.0)
     end
 end
@@ -30,25 +28,17 @@ gmm_tarray_example(x = [0.1, -0.05, 1.0], K = 2) = gmm_tarray(x, K)
     s = tzeros(Int, N)
 
     # Emission matrix.
-    m = Vector{T}(undef, K)
+    m ~ arraydist([Normal(i, 0.5) for i in 1:K])
 
     # Transition matrix.
-    T = Vector{Vector{T}}(undef, K)
+    t ~ filldist(Dirichlet(K, 1.0), K)
 
-    # Assign distributions to each element
-    # of the transition matrix and the
-    # emission matrix.
-    for i = 1:K
-        T[i] ~ Dirichlet(K, 1.0)
-        m[i] ~ Normal(i, 0.5)
-    end
-    
     # Observe each point of the input.
     s[1] ~ Categorical(K)
     x[1] ~ Normal(m[s[1]], 0.1)
 
     for i = 2:N
-        s[i] ~ Categorical(T[s[i-1]])
+        s[i] ~ Categorical(t[:,s[i-1]])
         x[i] ~ Normal(m[s[i]], 0.1)
     end
 end
@@ -77,21 +67,19 @@ end
 
     v ~ filldist(StickBreakingProcess(crm), K - 1)
     w = stickbreak(v)
-    
-    # Cluster assignments
-    z = tzeros(Int, N)
-    for n = 1:N
-        z[n] ~ Categorical(w)
-    end
 
     # Cluster centers
-    L = identity(K)
+    L = identity(K) # Is this needed?
     μ ~ filldist(Normal(), L)
+
+    # Cluster assignments
+    z = tzeros(Int, N)
 
     # Observations
     for n = 1:N
+        z[n] ~ Categorical(w)
         y[n] ~ Normal(μ[z[n]], 1.0)
     end
 end
 
-imm_stick_tarray_example(y = data_neal, α = α_neal, K = 10) = imm_stick_tarray()
+imm_stick_tarray_example(y = data_neal, α = α_neal, K = 100) = imm_stick_tarray(y, α, K)
