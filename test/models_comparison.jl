@@ -17,10 +17,12 @@
     for n = 1:N
         x[n] ~ Normal(μ[z[n]], 1.0)
     end
+
+    return x
 end
 
-gmm_tarray_example(x = [0.1, -0.05, 1.0], K = 2) = gmm_tarray(x, K)
-
+gmm_tarray_example(;x = [0.1, -0.05, 1.0], K = 2) = gmm_tarray(x, K)
+gmm_generate(N; K = 2) = identity.(gmm_tarray(fill(missing, N), K)())
 
 # K clusters, each one around i for i = 1:K with variance 0.5
 @model function hmm_tarray(x, K, ::Type{T}=Float64) where {T<:Real}
@@ -51,10 +53,12 @@ gmm_tarray_example(x = [0.1, -0.05, 1.0], K = 2) = gmm_tarray(x, K)
         s[i] ~ Categorical(T[s[i-1]])
         x[i] ~ Normal(m[s[i]], 0.1)
     end
+
+    return x
 end
 
 hmm_tarray_example(x = [0.1, -0.05, 1.0], K = 2) = hmm_tarray(x, K)
-
+hmm_generate(N; K = 2) = identity.(hmm_tarray(fill(missing, N), K)())
 
 function stickbreak(v)
     K = length(v) + 1
@@ -92,6 +96,9 @@ end
     for n = 1:N
         y[n] ~ Normal(μ[z[n]], 1.0)
     end
+
+    return y
 end
 
-imm_stick_tarray_example(y = data_neal, α = α_neal, K = 10) = imm_stick_tarray()
+imm_stick_tarray_example(;y = data_neal, α = α_neal, K = 10) = imm_stick_tarray()
+imm_stick_generate(N; α = α_neal, K = 10) = identity.(hmm_tarray(fill(missing, N), α, K)())

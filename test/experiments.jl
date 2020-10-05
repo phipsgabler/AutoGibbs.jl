@@ -28,9 +28,9 @@ function benchmark_models(combinations...; N=100, bparams...)
 end
 
 function compare_gmm()
-    data = [randn(10) .- 0.5; randn(5) .+ 1]
-    m1 = gmm_example(data)
-    m2 = gmm_tarray_example(data)
+    data = gmm_generate(20)
+    m1 = gmm_example(x = data)
+    m2 = gmm_tarray_example(x = data)
 
     cond_gmm_z = StaticConditional(m1, :z)
     alg1 = Gibbs(cond_gmm_z, MH(:w, :μ))
