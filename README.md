@@ -2,6 +2,11 @@
 
 [![Build Status](https://travis-ci.com/phipsgabler/AutoGibbs.jl.svg?branch=master)](https://travis-ci.com/phipsgabler/AutoGibbs.jl)
 
+Beware: this is nothing but a proof of concept.  Specifically, due to unfortate choices in
+`IRTracker`, handling traces of models with data sets not particularly small leads to exploding
+type inference time, making the method unusable.
+
+
 
 ## Dependency extraction in DPPL models
 
@@ -22,27 +27,27 @@ will result in
 
 ```
 ⟨2⟩ = 1.4
-⟨4:λ⟩ ~ Gamma(2.0, 0.3333333333333333) → 1.0351608689025245
-⟨5⟩ = /(1, ⟨4:λ⟩) → 0.9660334253749353
-⟨6⟩ = sqrt(⟨5⟩) → 0.982869994137035
-⟨8:m⟩ ~ Normal(0, ⟨6⟩) → -2.0155543806491205
-⟨9⟩ = /(1, ⟨4:λ⟩) → 0.9660334253749353
-⟨10⟩ = sqrt(⟨9⟩) → 0.982869994137035
-⟨12:x⟩ ⩪ Normal(⟨8:m⟩, ⟨10⟩) ← ⟨2⟩
+⟨4⟩ = λ ~ Gamma(2.0, 0.3333333333333333) → 0.5181638066817373
+⟨5⟩ = /(1, ⟨4⟩) → 1.9298916425751296
+⟨6⟩ = sqrt(⟨5⟩) → 1.3892053997070157
+⟨8⟩ = m ~ Normal(0, ⟨6⟩) → 0.7621682353026793
+⟨9⟩ = /(1, ⟨4⟩) → 1.9298916425751296
+⟨10⟩ = sqrt(⟨9⟩) → 1.3892053997070157
+⟨12⟩ = x ⩪ Normal(⟨8⟩, ⟨10⟩) ← ⟨2⟩
 ```
 
-Notation: references to values are written in ⟨angle brackets⟩, with names (and possibly indices) or
-random random variables after a colon.  Unobserved random variables (“assumptions”) are notated by a
-simple `~`, observed ones use `⩪`.  Equality signs denote assignment of intermediate deterministic
-values.  The results of deterministic or assumed values come after the `→`; `←` is used for values
-that are observed.
+Notation: references to values are written in ⟨angle brackets⟩.  The names of random variables in
+tilde statements are annotated with names (and possibly indices).  Unobserved random variables
+(“assumptions”) are notated by a simple `~`, observed ones use `⩪`.  Equality signs denote
+assignment of intermediate deterministic values, as in normal SSA-form IR.  The results of
+deterministic or assumed values come after the `→`; `←` is used for values that are observed.
 
-(Numbers of references are quite contiguously numbered, but some numbers may be missing, since they
-get removed by the slicing process.)
+Numbers of references are quite contiguously numbered, but some numbers may be missing, since they
+get removed by the slicing process.
 
 The result of `trackdependencies` is a `Graph`, which is essentially an ordered dictionary from
 `Reference`s to statements, that can be either of `Assumption`, `Observation`, `Call`, or
-`Constant`.  You can also use just itegers to index the graph:
+`Constant`.  For debugging, you can also use integers to index the graph:
 
 ```
 julia> graph0[4]

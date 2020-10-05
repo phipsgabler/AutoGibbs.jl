@@ -89,7 +89,7 @@ end
     0.1 ~ Normal(0.0, s)
 end
 
-testdependencies(test8(), s)
+@testdependencies(test8(), s)
 
 
 @model function test9(x)

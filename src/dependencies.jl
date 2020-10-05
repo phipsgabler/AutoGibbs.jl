@@ -24,7 +24,7 @@ istilde(::AbstractNode) = false
 """
     tilde_parameters(node)
 
-Extract a tuple of variablen name, distribution, and value argument of any tilde call.  
+Extract a tuple of variablen name, distribution, and value argument of any tilde call.
 
 The variable name can be `nothing` for constant observations.  The whole value is `nothing` for 
 nodes that are not tilde calls.
@@ -91,7 +91,7 @@ function model_argument_nodes(root)
     # @7: [§1:%7] ⟨getproperty⟩(@3, ⟨:args⟩) → (x = [0.1, 0.05, 1.0],)
     # @8: [§1:%8] ⟨getproperty⟩(@7, ⟨:x⟩) → [0.1, 0.05, 1.0]
     # ```
-    # extract only the `getproperty(@6, ⟨:x⟩)` line (for each argument).
+    # extract only the `getproperty(@n, ⟨:varname⟩)` line for each argument.
 
     argument_nodes = Vector{AbstractNode}()
     model_node = getchildren(root)[3]
@@ -156,24 +156,28 @@ function strip_dependencies(root)
     # later operations mutating earlier values(e.g, z = zeros(), z[1] ~ D, x ~ D2(z[1])).
     
     dependencies = model_argument_nodes(root)
-    # dependencies = Vector{AbstractNode}()
     candidates = Set{AbstractNode}()
     mutants = Dict{AbstractNode, Vector{AbstractNode}}()
 
     for child in getchildren(root)
         params = tilde_parameters(child)
+
         if !isnothing(params)
             # tilde node: is a dependency for sure
             push!(dependencies, child)
         else
             # non-tilde node: make candidate, if any parent is a candidate or dependency
-            if any(r ∈ candidates || r ∈ dependencies for r in referenced(child))
+            
+            # this `t` is critical -- exploding type inference!
+            t = any(r ∈ candidates || r ∈ dependencies for r in referenced(child))
+            if t
                 push!(candidates, child)
-                
+
                 if child isa CallingNode{typeof(setindex!)}
                     # if the candidate is mutating an array, also make the mutated object a candidate
                     # and record the backedge from the mutated one to:
                     # `n = setindex!(x, v, i)` makes `x` a candidate, and a backedge from `x` to `n`.
+                    
                     mutated = getargument(child, 1)
                     if mutated isa TapeReference
                         push!(candidates, mutated[])
@@ -200,92 +204,159 @@ end
 
 
 
+
+struct Reference
+    number::Int
+end
+
+Base.show(io::IO, r::Reference) = print(io, "⟨", r.number, "⟩")
+Base.isless(q::Reference, r::Reference) = isless(q.number, r.number)
+Base.hash(r::Reference, h::UInt) = hash(r.number, h)
+Base.:(==)(q::Reference, r::Reference) = q.number == r.number
+
+
 abstract type Statement end
 
-struct Assumption{dotted, TDist<:Statement, TV} <: Statement
-    dist::TDist
-    value::TV
+struct Assumption{dotted, TN<:VarName, TVal} <: Statement
+    vn::TN
+    dist_ref::Reference
+    value::TVal
     logp::Float64
 end
 
-Assumption{dotted}(dist, value, logp) where {dotted} =
-    Assumption{dotted, typeof(dist), typeof(value)}(dist, value, logp)
+Assumption{dotted}(vn, dist_ref, value, logp) where {dotted} =
+    Assumption{dotted, typeof(vn), typeof(value)}(vn, dist_ref, value, logp)
 
-struct Observation{dotted, TDist<:Statement, TV} <: Statement
-    dist::TDist
-    value::TV
+struct Observation{dotted, TN<:Union{Nothing, VarName}, TVal} <: Statement
+    vn::TN
+    dist_ref::Reference
+    value::TVal
     logp::Float64
 end
 
-Observation{dotted}(dist, value, logp) where {dotted} =
-    Observation{dotted, typeof(dist), typeof(value)}(dist, value, logp)
+Observation{dotted}(vn, dist_ref, value, logp) where {dotted} =
+    Observation{dotted, typeof(vn), typeof(value)}(vn, dist_ref, value, logp)
 
-struct Call{TF, TArgs<:Tuple, TV} <: Statement
+struct Call{TD<:Union{Nothing, Tuple{VarName, Reference}}, TF, TArgs<:Tuple, TVal} <: Statement
+    definition::TD
     f::TF
     args::TArgs
-    value::TV
+    value::TVal
 end
 
-struct Constant{TV} <: Statement
-    value::TV
+Call(f, args, value) = Call(nothing, f, args, value)
+
+struct Constant{TVal} <: Statement
+    value::TVal
 end
 
 
+const Tilde{dotted} = Union{Assumption{dotted}, Observation{dotted}}
 
-shortname(d::Type{<:Distribution}) = string(nameof(d))
-shortname(other) = string(other)
 
-Base.show(io::IO, stmt::Assumption) =
-    print(io, shortname(stmt.dist.f), "(", join(stmt.dist.args, ", "), ") → ", stmt.value)
-Base.show(io::IO, stmt::Observation) =
-    print(io, shortname(stmt.dist.f), "(", join(stmt.dist.args, ", "), ") ← ", stmt.value)
-Base.show(io::IO, stmt::Call) = print(io, stmt.f, "(", join(stmt.args, ", "), ") → ", stmt.value)
+
+_shortname(d::Type{<:Distribution}) = string(nameof(d))
+_shortname(other) = string(other)
+
+function Base.show(io::IO, stmt::Assumption)
+    print(io, stmt.vn, (isdotted(stmt) ? " .~ " : " ~ "), stmt.dist_ref, " → ", stmt.value)
+end
+function Base.show(io::IO, stmt::Observation)
+    print(io, (isnothing(stmt.vn) ? stmt.value : stmt.vn))
+    print(io, (isdotted(stmt) ? " .⩪ " : " ⩪ "), stmt.dist_ref,  " ← ", stmt.value)
+end
+function Base.show(io::IO, stmt::Call)
+    if !isnothing(stmt.definition)
+        vn = stmt.definition[1]
+        print(io, vn, " = ")
+    end
+    print(io, stmt.f)
+    print(io, "(")
+    join(io, stmt.args, ", ")
+    print(io, ") → ", stmt.value)
+end
 Base.show(io::IO, stmt::Constant) = print(io, stmt.value)
 
 IRTracker.getvalue(stmt::Statement) = stmt.value
 
 isdotted(::Type{<:Assumption{dotted}}) where {dotted} = dotted
 isdotted(::Type{<:Observation{dotted}}) where {dotted} = dotted
-isdotted(tilde::Union{Assumption, Observation}) = isdotted(typeof(tilde))
+isdotted(tilde::Tilde) = isdotted(typeof(tilde))
 
-struct Reference{TV<:Union{VarName, Nothing}}
-    number::Int
-    vn::TV
+
+getvn(stmt::Tilde) = stmt.vn
+getvn(stmt::Call) = isnothing(stmt.definition) ? nothing : stmt.definition[1]
+getvn(::Constant) = nothing
+
+
+"""
+    parent_variables(graph, stmt)
+
+Return all `Assumption`s (potentially with indexing) that the tilde `stmt` depends on directly.
+"""
+function parent_variables(graph, stmt::Tilde)
+    result = Set{Pair{VarName, Assumption}}()
+    parent_variables!(result, graph, graph[stmt.dist_ref])
+    stmt.value isa Reference && parent_variables!(result, graph, stmt.value)
+    return result
 end
 
-Reference(number) = Reference(number, nothing)
-
-const UnnamedReference = Reference{Nothing}
-const NamedReference = Reference{<:VarName}
-
-Base.show(io::IO, r::UnnamedReference) = print(io, "⟨", r.number, "⟩")
-Base.show(io::IO, r::NamedReference) = print(io, "⟨", r.number, ":", r.vn, "⟩")
-Base.isless(q::Reference, r::Reference) = isless(q.number, r.number)
-Base.hash(r::Reference, h::UInt) = hash(r.number, hash(r.vn, h))
-Base.:(==)(q::Reference, r::Reference) = (q.number == r.number) && (q.vn == r.vn)
-
-
-dependencies(::Constant) = Reference[]
-function dependencies(stmt::Union{Assumption, Observation})
-    direct_dependencies = dependencies(stmt.dist)
-    stmt.value isa Reference && push!(direct_dependencies, stmt.value)
-    return direct_dependencies
+parent_variables!(result, graph, stmt) = result
+function parent_variables!(result, graph, ref::Reference)
+    # follow back implicit dependencies on unmarked locations without indexing, e.g.
+    # ⟨2⟩ = [0.1, -0.2]
+    # ⟨3⟩ = Array{Float64,1}(array initializer with undefined values, 2) → ...
+    # ⟨6⟩ = m[1] ~ Normal() → ...
+    # ⟨7⟩ = m[1] = getindex(⟨3⟩, 1) → ...
+    # ⟨10⟩ = m[2] ~ Normal() → ...
+    # ⟨11⟩ = m[2] = getindex(⟨3⟩, 2) → ...
+    # ⟨13⟩ = x ⩪ MvNormal(⟨3⟩) ← ⟨2⟩
+    # `x` depends on the whole of `m`, stored in `⟨3⟩`, and thus implicitly
+    # on `m[1]` and `m[2]` (cf. reverse_deps test case).
+    
+    if haskey(graph.rv_locations, ref)
+        for (ix, loc) in graph.rv_locations[ref]
+            loc == ref && continue # skip one-line array tildes, e.g., z ~ filldist(...)
+            parent_variables!(result, graph, loc)
+        end
+    end
+    
+    return parent_variables!(result, graph, graph[ref])
 end
-function dependencies(stmt::Call)
-    direct_dependencies = Reference[arg for arg in stmt.args if arg isa Reference]
-    return mapreduce(dependencies,
-                     append!,
-                     direct_dependencies,
-                     init=direct_dependencies)
+function parent_variables!(result, graph, stmt::Assumption)
+    # direct dependency:
+    # ⟨31⟩ = w ~ Dirichlet()
+    # ⟨42⟩ = z[1] ~ DiscreteNonParametric(⟨31⟩)
+    return push!(result, stmt.vn => stmt)
 end
-dependencies(ref::NamedReference) =
-    Reference[ix for index in DynamicPPL.getindexing(ref.vn) for ix in index if ix isa Reference]
-dependencies(ref::UnnamedReference) = Reference[]
+function parent_variables!(result, graph, stmt::Observation)
+    @warn "The parent statement is an observation ($(stmt)), something weird has happened..."
+    return result
+end
+function parent_variables!(result, graph, stmt::Call{<:Nothing})
+    # go through all argumens of an unmarked location:
+    # ⟨85⟩ = getindex(⟨2⟩, ⟨72⟩)
+    # ⟨86⟩ = x[3] ⩪ Normal(⟨80⟩, 1.0) ← ⟨85⟩
+    
+    for arg in stmt.args
+        parent_variables!(result, graph, arg)
+    end
+    
+    return result
+end
+function parent_variables!(result, graph, stmt::Call{<:Tuple, typeof(getindex)})
+    # special case: don't add whole array (`z`) for indexing calls
+    # ⟨12⟩ = z ~ filldist(⟨10⟩, ⟨5⟩)
+    # ⟨30⟩ = z[2] = getindex(⟨12⟩, ⟨28⟩)
+    # ⟨31⟩ = μ[2] = getindex(⟨7⟩, ⟨30⟩)
+    for arg in Base.tail(stmt.args)
+        parent_variables!(result, graph, arg)
+    end
+    vn, location = stmt.definition
+    push!(result, vn => graph[location])
+    return result
+end
 
-
-parents(::Constant) = Reference[]
-parents(stmt::Call) = Reference[arg for arg in stmt.args if arg isa Reference]
-parents(stmt::Union{Assumption, Observation}) = parents(stmt.dist)
 
 
 struct Graph
@@ -295,20 +366,28 @@ struct Graph
     """Association which nodes in the trace are associated with which references in the graph"""
     reference_mapping::Dict{AbstractNode, Reference}
 
-    """Remembers which references describe arrays that have been discovered to have been mutated"""
-    mutated_rvs::Dict{Reference, VarName}
+    """
+    Remembers in which references random variables are actually stored; this is either the location
+    of the tilde statement (`beta ~ Normal()`, `z ~ filldist(...)`), or the array position it is
+    assigned to (`z[i] ~ Normal()`).
+
+    The container is first ordered by reference of storage, then by index for `subsumes` testing.
+    """
+    rv_locations::Dict{Reference, Vector{Pair{Tuple, Reference}}}
 end
 
 Graph() = Graph(SortedDict{Reference, Statement}(),
                 Dict{AbstractNode, Reference}(),
-                Dict{Reference, VarName}())
+                Dict{Reference, Vector{Pair{Tuple, Reference}}}())
 
 Base.IteratorSize(::Type{Graph}) = Base.HasLength()
 Base.length(graph::Graph) = length(graph.statements)
 Base.IteratorEltype(::Type{Graph}) = Base.HasEltype()
 Base.eltype(graph::Graph) = eltype(graph.statements)
-Base.getindex(graph::Graph, ref::Reference) = graph.statements[ref]
+Base.getindex(graph::Graph, ref) = graph.statements[ref]
 Base.setindex!(graph::Graph, stmt, ref) = graph.statements[ref] = stmt
+Base.firstindex(graph::Graph) = firstindex(graph.statements)
+Base.lastindex(graph::Graph) = lastindex(graph.statements)
 Base.get(graph::Graph, ref, default) = get(graph.statements, ref, default)
 Base.haskey(graph::Graph, ref) = haskey(graph.statements, ref)
 Base.delete!(graph::Graph, ref) = delete!(graph.statements, ref)
@@ -317,14 +396,12 @@ Base.values(graph::Graph) = values(graph.statements)
 Base.iterate(graph::Graph) = iterate(graph.statements)
 Base.iterate(graph::Graph, state) = iterate(graph.statements, state)
 
-function Base.getindex(graph::Graph, ref::Int)
-    for (k, v) in graph
-        if k.number == ref
-            return v
-        end
-    end
-    throw(BoundsError(graph, ref))
-end
+# just intended for debugging
+Base.getindex(graph::Graph, i::Int) = graph[Reference(i)]
+
+# to convert an atom to a runtime value: either the value of the referenced node, or a literal
+tovalue(graph, ref::Reference) = getvalue(graph[ref])
+tovalue(graph, other) = other
 
 function Base.mapreduce(f, op, graph::Graph; init)
     for kv in graph
@@ -347,13 +424,13 @@ Base.map(f, graph::Graph; init=Vector{eltype(graph)}()) = mapreduce(f, push!; in
 
 getstatements(graph::Graph) = graph.statements
 
-# getmapping(graph::Graph, constant, default) = constant
+hasmapping(graph::Graph, node) = haskey(graph.reference_mapping, node)
 function getmapping(graph::Graph, node)
     ref = graph.reference_mapping[node]
-    return Reference(ref.number, getmutation(graph, ref))
+    return ref
 end
 function getmapping(graph::Graph, node, default)
-    if haskey(graph.reference_mapping, node)
+    if hasmapping(graph, node)
         getmapping(graph, node)
     else
         return default
@@ -362,61 +439,48 @@ end
 setmapping!(graph::Graph, (node, ref)::Pair) = graph.reference_mapping[node] = ref
 
 function deletemapping!(graph::Graph, node)
-    if haskey(graph.reference_mapping, node)
+    if hasmapping(graph, node)
         delete!(graph, getmapping(graph, node))
     end
     return graph
 end
 
-getmutation(graph::Graph, ref::Reference) = get(graph.mutated_rvs, ref, ref.vn)
-setmutation!(graph, (ref, vn)::Pair) = graph.mutated_rvs[ref] = vn
+
+"""Look up the matching location of an RV in graph.rv_locations[ref] for given index tuple."""
+function _find_indexing(indexings, indexing)
+    for (ix, r) in indexings
+        if DynamicPPL.subsumes(ix, indexing)
+            return r
+        end
+    end
+    return nothing
+end
+
+function getrv(graph::Graph, ref::Reference, indexing)
+    _find_indexing(graph.rv_locations[ref], indexing)
+end
+
+function setrv!(graph, ((ref, indexing), vn))
+    push!(get!(graph.rv_locations, ref, valtype(graph.rv_locations)()),
+          indexing => vn)
+end
+
+function hasrv(graph, ref, indexing)
+    indexings = get(graph.rv_locations, ref, nothing)
+    return !isnothing(indexings) && !isnothing(_find_indexing(indexings, indexing))
+end
 
 
-function makereference!(graph, node, vn=nothing)
-    newref = Reference(length(graph.reference_mapping) + 1, vn)
+function makereference!(graph, node)
+    newref = Reference(length(graph.reference_mapping) + 1)
     setmapping!(graph, node => newref)
     return newref
 end
 
 function Base.show(io::IO, graph::Graph)
     for (ref, stmt) in graph
-        showstmt(io, ref, stmt)
-    end
-end
-
-function showstmt(io::IO, ref, stmt)
-    if stmt isa Assumption
-        println(io, ref, (isdotted(stmt) ? " .~ " : " ~ "), stmt)
-    elseif stmt isa Observation
-        println(io, ref, (isdotted(stmt) ? " .⩪ " : " ⩪ "), stmt)
-    else
         println(io, ref, " = ", stmt)
     end
-end
-
-
-"""Convert references in VarName indices into values."""
-function dereference(graph, vn::VarName{S}) where {S}
-    indices = map.(r -> try_getvalue(graph, r), DynamicPPL.getindexing(vn))
-    VarName(S, indices)
-end
-
-"""Follow a reference, leave other values as is."""
-try_getvalue(graph, constant) = constant
-try_getvalue(graph, ref::UnnamedReference) = getvalue(graph[ref])
-function try_getvalue(graph, ref::NamedReference)
-    vn = dereference(graph, ref.vn)
-    stmt = graph[ref.number]
-    return foldl((a, ix) -> a[ix...], DynamicPPL.getindexing(vn), init=getvalue(stmt))
-end
-
-
-resolve_varname(graph, ref::UnnamedReference) = ref
-function resolve_varname(graph, ref::NamedReference)
-    vn = ref.vn
-    sym = DynamicPPL.getsym(vn)
-    indexing = DynamicPPL.getindexing(vn)
-    return VarName(sym, Tuple(try_getvalue.(Ref(graph), ix) for ix in indexing))
 end
 
 
@@ -431,17 +495,8 @@ convertvalue(graph, expr::TapeConstant) = getvalue(expr)
 
 convertdist!(graph, dist_expr::TapeConstant) = Constant(getvalue(dist))
 function convertdist!(graph, dist_expr::TapeReference)
-    ref = getmapping(graph, dist_expr[], nothing)
-    if haskey(graph, ref)
-        # move the separeate distribution call into the node and delete it from the graph
-        dist = graph[ref]
-        delete!(graph, ref)
-        return dist
-    else
-        # the distribution node existed, but has already been deleted, so we reconstruct it
-        # (obscure case when one distribution reference is sampled from twice)
-        return convertcall(graph, dist_expr[])
-    end
+    ref = getmapping(graph, dist_expr[])
+    return ref
 end
 
 
@@ -465,26 +520,29 @@ function convertvn!(graph, vn_expr::TapeReference)
     deletemapping!(graph, indices_node)
     deletemapping!.(Ref(graph), index_element_nodes)
 
-    return VarName(vn_name, index_refs)
+    return VarName(vn_name, map.(ix -> tovalue(graph, ix), index_refs))
 end
 
 
 function pushtilde!(graph, callingnode, tilde_constructor)
     vn_expr, dist_expr, value_expr, vi_expr = tilde_parameters(callingnode)
     vn = convertvn!(graph, vn_expr)
-    dist = convertdist!(graph, dist_expr)
+    dist_ref = convertdist!(graph, dist_expr)
     value = convertvalue(graph, value_expr)
+    
+    ref = makereference!(graph, callingnode)
+    graph[ref] = tilde_constructor(vn, dist_ref, value, -Inf)
 
-    ref = makereference!(graph, callingnode, vn)
-    graph[ref] = tilde_constructor(dist, value, -Inf)
-
-    if tilde_constructor <: Assumption{true}
-        # dot_tilde mutates whole array
-        setmutation!(graph, value => vn)
-    end
-
-    if isdotted(tilde_constructor)
-        @warn "Broadcasted tildes ($(graph[ref])) are not fully supported!"
+    if !isnothing(vn)
+        indexing_values = tovalue.(Ref(graph), DynamicPPL.getindexing(vn))
+        if isdotted(tilde_constructor)
+            @warn "Broadcasted tildes ($(graph[ref])) are not fully supported!"
+            setrv!(graph, (value, indexing_values) => ref)
+        elseif indexing_values == ()
+            # this is the case where an unindexed variable is sampled -- the value is equivalent to
+            # the current reference; otherwise, a `setindex!` should follow in the next line.
+            setrv!(graph, (ref, indexing_values) => ref)
+        end
     end
     
     return graph
@@ -511,14 +569,12 @@ function pushnode!(graph, node::CallingNode{typeof(DynamicPPL.matchingvalue)})
     # @7: ⟨getproperty⟩(@6, ⟨:x⟩) = [0.5, 1.1]                                                                                                                                                       
     # @8: ⟨DynamicPPL.matchingvalue⟩(@4, @3, @7) = [0.5, 1.1]
 
-    value_expr = getargument(node, 3)
+    value_expr = getargument(node, 3) # @7 above
     if value_expr isa TapeReference
-        getproperty_node = try_getindex(value_expr)
+        getproperty_node = value_expr[]
         delete!(graph, getmapping(graph, getproperty_node))
-        argname = getvalue(getargument(getproperty_node, 2))
-    else
-        # this will probably never happen...?
-        argname = gensym("argument")
+    else # value vas a literal, not a function argument
+        @warn "this probably shouldn't have happened..."
     end
 
     ref = makereference!(graph, node)
@@ -532,27 +588,39 @@ function pushnode!(graph, node::CallingNode{typeof(setindex!)})
     argument_exprs = try_getindex.(getarguments(node))
     arguments = getmapping.(Ref(graph), argument_exprs, argument_exprs)
     mutated, value, indexing = arguments[1], arguments[2], arguments[3:end]
-    if value isa Reference && graph[value] isa Union{Assumption, Observation}
-        setmutation!(graph, mutated => VarName(DynamicPPL.getsym(value.vn), (indexing,)))
+    indexing_values = (tovalue.(Ref(graph), indexing),)
+    
+    if value isa Reference && graph[value] isa Tilde
+        # this is the case where in the previous line, an indexed RV was sampled; we need
+        # to associate the value with the array position it is assigned to here.
+        setrv!(graph, (mutated, indexing_values) => value)
+        
+        # # we can also replace the `setindex!` call that followed the tilde node
+        # # by a `getindex` on the same value, to preserve the information of the dependency of
+        # # between the variable, the array, and the index
+        # # PROBABLY UNNEEDED? see reverse_deps test case in test_conditionals
+        definition = (graph[value].vn, value)
+        ref = makereference!(graph, node)
+        graph[ref] = Call(definition, getindex, (mutated, indexing...), tovalue(graph, value))
     else
         invoke(pushnode!, Tuple{Graph, CallingNode}, graph, node)
     end
-    
     
     return graph
 end
 
 function pushnode!(graph, node::CallingNode{typeof(getindex)})
+    # @180: ⟨getindex⟩(@9, @135) → -0.05
     argument_exprs = try_getindex.(getarguments(node))
     arguments = getmapping.(Ref(graph), argument_exprs, argument_exprs)
-    array_ref, index_refs = arguments[1], arguments[2:end]
-    if array_ref isa NamedReference
-        mapped_refs = getmapping.(Ref(graph), index_refs, index_refs)
-        vn = VarName(DynamicPPL.getsym(array_ref.vn), (mapped_refs,))
-        ref = Reference(array_ref.number, vn)
-        setmutation!(graph, ref => vn)
-        setmapping!(graph, node => ref)
-        # invoke(pushnode!, Tuple{Graph, CallingNode}, graph, node)
+    array, indexing = arguments[1], arguments[2:end]
+    indexing_values = (tovalue.(Ref(graph), indexing),)
+    
+    if hasrv(graph, array, indexing_values)
+        rv = getrv(graph, array, indexing_values)
+        ref = makereference!(graph, node)
+        definition = (VarName(graph[rv].vn, indexing_values), rv)
+        graph[ref] = Call(definition, getindex, (array, indexing...), getvalue(node))
     else
         invoke(pushnode!, Tuple{Graph, CallingNode}, graph, node)
     end
@@ -568,11 +636,11 @@ end
 
 function pushnode!(graph, node::ArgumentNode)
     if !isnothing(node.branch_node)
-        # skip branch argument nodes
+        # don't add, but remember branch arguments
         original_ref = getmapping(graph, referenced(node)[1])
         setmapping!(graph, node => original_ref)
     else
-        # function argument nodes are handled like constants
+        # handle function argument nodes like constants
         ref = makereference!(graph, node)
         graph[ref] = Constant(getvalue(node))
     end
@@ -581,60 +649,10 @@ function pushnode!(graph, node::ArgumentNode)
 end
 
 
-function eliminate_leftovers!(graph::Graph)
-    marked = Set{Reference}()
-    candidates = Set{Reference}()
-
-    # first pass: mark everything between tildes
-    for (ref, stmt) in graph
-        empty!(candidates)
-        
-        if stmt isa Union{Assumption, Observation}
-            # mark backwards from `ref`
-            push!(candidates, ref)
-            
-            while !isempty(candidates)
-                candidate = pop!(candidates)
-                candidate ∈ marked && continue
-                
-                push!(marked, candidate)
-                union!(candidates, dependencies(graph[candidate]))
-                union!(candidates, dependencies(candidate))
-            end
-        end
-    end
-
-    # second pass: mark `setindex!` calls going to already marked refs
-    for (ref, stmt) in graph
-        empty!(candidates)
-        
-        if stmt isa Call{typeof(setindex!)}
-            union!(candidates, dependencies(stmt))
-            
-            while !isempty(candidates)
-                candidate = pop!(candidates)
-                
-                if candidate ∈ marked
-                    push!(marked, ref)
-                    break
-                end
-                
-                union!(candidates, dependencies(graph[candidate]))
-                union!(candidates, dependencies(candidate))
-            end
-        end
-    end
-
-    # third step: delete all unmarked nodes
-    for unmarked in setdiff(keys(graph), marked)
-        delete!(graph, unmarked)
-    end
-end
-
 function makegraph(slice::Vector{<:AbstractNode})
-    graph = foldl(pushnode!, slice, init=Graph())
-    # eliminate_leftovers!(graph)
-    return graph
+    return foldl(slice, init=Graph()) do graph, node
+        pushnode!(graph, node)
+    end
 end
 
 

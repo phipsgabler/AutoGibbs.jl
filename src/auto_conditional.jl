@@ -10,8 +10,12 @@ export AutoConditional
 """
     AutoConditional(sym)
 
-A "pseudo-sampler" to use automatically extracted conditionals within `Gibbs`.
-`AutoConditional(:x)` will sample the Gibbs conditional of variable `x`.
+A "pseudo-sampler" to use automatically extracted conditionals within `Gibbs`.  The conditionals are
+extracted from the model trace at sampling step and allow dynamically changing models.  If you don't
+need that, use `StaticConditional` instead.
+
+`AutoConditional(:x)` will sample the Gibbs conditional of variable `x`, or equivalently, all 
+variables subsumed by `x`.
 
 # Examples
 
@@ -57,8 +61,9 @@ function AbstractMCMC.step!(
 ) where {S}
     graph = trackdependencies(model, spl.state.vi)
     conditioned_vn = DynamicPPL.VarName(S)
-    for (vn, dist) in conditional_dists(graph, conditioned_vn)
-        updated = rand(rng, dist)
+    values = sampled_values(graph)
+    for (vn, cond) in conditionals(graph, conditioned_vn)
+        updated = rand(rng, cond(values))
         spl.state.vi[vn] = [updated;]
     end
     
