@@ -140,7 +140,7 @@ function stickbreak(v)
 end
 
 # from https://luiarthur.github.io/TuringBnpBenchmarks/dpsbgmm
-@model function imm_stick(y, α, K, ::Type{T}=Float64) where {T<:Real}
+@model function imm_stick(y, α, K)
     N = length(y)
     crm = DirichletProcess(α)
 
@@ -155,10 +155,7 @@ end
 
     # Cluster centers
     L = identity(K)
-    μ = Vector{T}(undef, L)
-    for i = 1:L
-        μ[i] ~ Normal()
-    end
+    μ ~ filldist(Normal(), L)
 
     # Observations
     for n = 1:N

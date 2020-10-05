@@ -163,29 +163,32 @@ function test_imm_stick()
     @testdependencies(model_imm_stick,
                       v, # 10 - 1 sticks
                       μ, # 10 cluster centers
-                      z, # 9 data points
+                      # z, # 9 data points
                       y[1], y[2], y[3], y[4], y[5], y[6], y[7], y[8], y[9])
     cond_imm_stick = StaticConditional(model_imm_stick, :z)
     @test_nothrow sample(model_imm_stick, Gibbs(cond_imm_stick, MH(:μ, :v)), 500)
     @test_nothrow sample(model_imm_stick, Gibbs(cond_imm_stick, HMC(0.01, 10, :μ, :v)), 500)
 
     # Analytic tests
-    v = graph_imm_stick[12].value
-    z = graph_imm_stick[16].value
-    μ = graph_imm_stick[19].value
-    # z = [v.value for v in values(graph_imm_stick.statements)
-    #      if v isa AutoGibbs.Assumption && DynamicPPL.subsumes(@varname(z), v.vn)]
     y = graph_imm_stick[2].value
+    α = graph_imm_stick[4].value
     K = graph_imm_stick[6].value
     N = graph_imm_stick[7].value
-    α = graph_imm_stick[4].value
+    v = graph_imm_stick[12].value
+    # z = graph_imm_stick[16].value
+    z = [v.value for v in values(graph_imm_stick.statements)
+         if v isa AutoGibbs.Assumption && DynamicPPL.subsumes(@varname(z), v.vn)]
+    # μ = graph_imm_stick[19].value
+    μ = (v.value for v in values(graph_imm_stick.statements)
+         if v isa AutoGibbs.Assumption && DynamicPPL.subsumes(@varname(μ), v.vn)) |> first
+
 
     D_w = Categorical(stickbreak(v))
     analytic_conditionals = map(1:N) do n
         p̃ = [exp(logpdf(D_w, z) + logpdf(Normal(μ[z], 1.0), y[n])) for z in support(D_w)]
         @varname(z[n]) => Categorical(p̃ ./ sum(p̃))
     end
-    analytic_conditional = Product([D for (vn, D) in analytic_conditionals])
+    # analytic_conditional = Product([D for (vn, D) in analytic_conditionals])
     # @info "stick-breaking IMM analytic conditionals" analytic_conditionals
     
     θ = AutoGibbs.sampled_values(graph_imm_stick)
@@ -195,7 +198,10 @@ function test_imm_stick()
     # @info "stick-breaking IMM calculated conditionals" Dict(
         # vn => cond(θ) for (vn, cond) in calculated_conditionals)
 
-    @test issimilar(calculated_conditionals[@varname(z)](θ), analytic_conditional)
+    for (vn, analytic_conditional) in analytic_conditionals
+        # @show vn => probs(calculated_conditionals[vn]), probs(analytic_conditional)
+        @test issimilar(calculated_conditionals[vn](θ), analytic_conditional)
+    end
 end
 
 
@@ -203,7 +209,7 @@ function test_changepoint()
     model_changepoint = changepoint([1.1, 0.9, 0.2])
     graph_changepoint = trackdependencies(model_changepoint)
     @testdependencies(model_changepoint, λ₁, λ₂, τ, y[1], y[2], y[3])
-    @test_nothrow sample(model_changepoint, Gibbs(AutoConditional(:τ), MH(:λ₁, :λ₂)), 500)
+    @test_nothrow sample(model_changepoint, Gibbs(AutoConditional(:τ), MH(:λ₁, :λ₂)), 20)
 end
 
 
@@ -224,6 +230,6 @@ end
 # test_gmm_shifted()
 # test_hmm()
 test_imm_stick()
-# test_changepoint()
+test_changepoint()
 
 

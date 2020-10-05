@@ -87,17 +87,13 @@ function stickbreak(v)
     end
 end
 
-@model function imm_stick_tarray(y, α, K, ::Type{T}=Float64) where {T<:Real}
+@model function imm_stick_tarray(y, α, K)
     N = length(y)
     crm = DirichletProcess(α)
 
-    # Stick weights
-    v = Vector{T}(undef, K - 1)
-    for i = 1:K-1
-        v[i] ~ StickBreakingProcess(crm)
-    end
+    v ~ filldist(StickBreakingProcess(crm), K - 1)
     w = stickbreak(v)
-
+    
     # Cluster assignments
     z = tzeros(Int, N)
     for n = 1:N
@@ -106,10 +102,7 @@ end
 
     # Cluster centers
     L = identity(K)
-    μ = Vector{T}(undef, L)
-    for i = 1:L
-        μ[i] ~ Normal()
-    end
+    μ ~ filldist(Normal(), L)
 
     # Observations
     for n = 1:N
