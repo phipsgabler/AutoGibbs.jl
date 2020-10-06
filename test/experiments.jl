@@ -10,6 +10,7 @@ using StatsPlots
 include("models.jl")
 include("models_comparison.jl")
 
+const plots_dir = "plots"
 
 const iter = 5_000    # sampling steps
 const N = 20          # size of test data set
@@ -35,19 +36,32 @@ function benchmark_models(combinations...; N=iter, bparams...)
 end
 
 
-function compare_models(model_ag, model_pg, p_discrete, p_continuous)
+function compare_samplers(model_ag, model_pg, p_discrete, p_continuous)
     static_conditional = StaticConditional(model_ag, p_discrete...)
     alg1 = Gibbs(static_conditional, MH(p_continuous...))
     alg2 = Gibbs(static_conditional, HMC(lf_size, n_step, p_continuous...))
     alg3 = Gibbs(PG(particles, p_discrete...), MH(p_continuous...))
     alg4 = Gibbs(PG(particles, p_discrete...), HMC(lf_size, n_step, p_continuous...))
 
-    b = benchmark_models("AG+MH" => (model_ag, alg1),
-                         "AG+HMC" => (model_ag, alg2),
-                         "PG+MH" => (model_pg, alg3),
-                         "PG+HMC" => (model_pg, alg4);
-                         N=iter, verbose=true, samples=10)
-    return b
+    combinations = Dict([
+        "AG+MH" => (model_ag, alg1),
+        "AG+HMC" => (model_ag, alg2),
+        "PG+MH" => (model_pg, alg3),
+        "PG+HMC" => (model_pg, alg4)])
+    
+    # b = benchmark_models(combinations...;
+                         # N=iter, verbose=true, samples=10)
+
+    pd = mkpath(plots_dir)
+    for (name, (m, alg)) in combinations
+        chain = sample(m, alg, iter)
+        # plot only the first of the cluster paramers, and all continuous ones
+        plt = plot(chain[[Symbol.(p_discrete, Ref("[1]"))..., p_continuous...]],
+                   title=name)
+        Plots.pdf(plt, joinpath(pd, name * ".pdf"))
+    end
+    
+    # return b
 end
 
 function compare_gmm()
@@ -57,7 +71,7 @@ function compare_gmm()
     p_discrete = [:z]
     p_continuous = [:w, :μ]
 
-    return compare_models(m1, m2, p_discrete, p_continuous)
+    return compare_samplers(m1, m2, p_discrete, p_continuous)
 end
 
 function compare_hmm()
@@ -67,7 +81,7 @@ function compare_hmm()
     p_discrete = [:s]
     p_continuous = [:t, :m]
 
-    return compare_models(m1, m2, p_discrete, p_continuous)
+    return compare_samplers(m1, m2, p_discrete, p_continuous)
 end
 
 function compare_imm()
@@ -76,11 +90,11 @@ function compare_imm()
     p_discrete = [:z]
     p_continuous = [:μ, :v]
 
-    return compare_models(m1, m2, p_discrete, p_continuous)
+    return compare_samplers(m1, m2, p_discrete, p_continuous)
 end
 
 
 
 compare_gmm()
-compare_hmm()
+# compare_hmm()
 # compaare_imm()
