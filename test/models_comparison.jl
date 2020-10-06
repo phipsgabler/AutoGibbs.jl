@@ -90,5 +90,5 @@ end
     return y
 end
 
-imm_stick_tarray_example(;y = data_neal, α = α_neal, K = 10) = imm_stick_tarray()
+imm_stick_tarray_example(;y = data_neal, α = α_neal, K = 10) = imm_stick_tarray(y, α, K)
 imm_stick_generate(N; α = α_neal, K = 10) = identity.(hmm_tarray(fill(missing, N), α, K)())

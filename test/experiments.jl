@@ -11,7 +11,14 @@ include("models.jl")
 include("models_comparison.jl")
 
 
-function benchmark_models(combinations...; N=100, bparams...)
+const iter = 5_000    # sampling steps
+const N = 20          # size of test data set
+const particles = 10  # parameter for particle gibbs
+const lf_size = 0.1   # parameter 1 for HMC
+const n_step = 10     # parameter 2 for HMC
+
+
+function benchmark_models(combinations...; N=iter, bparams...)
     old_prog = Turing.PROGRESS[]
     Turing.turnprogress(false)
     suite = BenchmarkGroup()
@@ -21,30 +28,59 @@ function benchmark_models(combinations...; N=100, bparams...)
     end
     
     tune!(suite)
-    results = run(suite;bparams...)
+    results = run(suite; bparams...)
     
     Turing.turnprogress(old_prog)
     return results
+end
+
+
+function compare_models(model_ag, model_pg, p_discrete, p_continuous)
+    static_conditional = StaticConditional(model_ag, p_discrete...)
+    alg1 = Gibbs(static_conditional, MH(p_continuous...))
+    alg2 = Gibbs(static_conditional, HMC(lf_size, n_step, p_continuous...))
+    alg3 = Gibbs(PG(particles, p_discrete...), MH(p_continuous...))
+    alg4 = Gibbs(PG(particles, p_discrete...), HMC(lf_size, n_step, p_continuous...))
+
+    b = benchmark_models("AG+MH" => (model_ag, alg1),
+                         "AG+HMC" => (model_ag, alg2),
+                         "PG+MH" => (model_pg, alg3),
+                         "PG+HMC" => (model_pg, alg4);
+                         N=iter, verbose=true, samples=10)
+    return b
 end
 
 function compare_gmm()
     data = gmm_generate(20)
     m1 = gmm_example(x = data)
     m2 = gmm_tarray_example(x = data)
+    p_discrete = [:z]
+    p_continuous = [:w, :μ]
 
-    cond_gmm_z = StaticConditional(m1, :z)
-    alg1 = Gibbs(cond_gmm_z, MH(:w, :μ))
-    alg2 = Gibbs(cond_gmm_z, HMC(0.01, 10, :w, :μ))
-    alg3 = Gibbs(PG(20, :z), MH(:w, :μ))
-    alg4 = Gibbs(PG(20, :z), HMC(0.01, 10, :w, :μ))
+    return compare_models(m1, m2, p_discrete, p_continuous)
+end
 
-    b = benchmark_models("AG+MH" => (m1, alg1),
-                         "AG+HMC" => (m1, alg2),
-                         "PG+MH" => (m2, alg3),
-                         "PG+HMC" => (m2, alg4);
-                         N=1000, verbose=true, samples=10)
-    display(b)
+function compare_hmm()
+    data = hmm_generate(20)
+    m1 = hmm_example(x = data)
+    m2 = hmm_tarray_example(x = data)
+    p_discrete = [:s]
+    p_continuous = [:t, :m]
+
+    return compare_models(m1, m2, p_discrete, p_continuous)
+end
+
+function compare_imm()
+    m1 = imm_stick_example()
+    m2 = imm_stick_tarray_example()
+    p_discrete = [:z]
+    p_continuous = [:μ, :v]
+
+    return compare_models(m1, m2, p_discrete, p_continuous)
 end
 
 
+
 compare_gmm()
+compare_hmm()
+# compaare_imm()
