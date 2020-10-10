@@ -5,9 +5,11 @@ using Random
 using AutoGibbs
 using Plots
 using StatsPlots
+using ProgressMeter
 
 
 include("models.jl")
+
 
 const CHAIN_LENGTH = 10 #5_000    # sampling steps
 const HMC_LF_SIZE = 0.1   # parameter 1 for HMC
@@ -41,6 +43,7 @@ function run_experiments(
             start_time = time_ns()
             static_conditional = StaticConditional(model_ag, p_discrete)
             compilation_time = time_ns() - start_time
+            @info "Compiled conditional in $(compilation_time/1e9) seconds"
             
             push!(compilation_times,
                   (model = modelname,
@@ -59,15 +62,13 @@ function run_experiments(
             ])
 
             for ((d_alg, c_alg), (model, sampler)) in combinations
-                @info "Running $d_alg+$c_alg with data size $L and $particles particles"
-                for n in 1:BENCHMARK_CHAINS
+                @info "Sampling $BENCHMARK_CHAINS chains using $d_alg+$c_alg with data size $L and $particles particles"
+                @showprogress for n in 1:BENCHMARK_CHAINS
                     start_time = time_ns()
                     chain = sample(model, sampler, CHAIN_LENGTH)
                     # sample(model, sampler, MCMCThreads(), 10, N)
                     sample_time = time_ns() - start_time
                     
-                    @info "Chain $n ran in $(sample_time / 1e9)s"
-
                     push!(results,
                           (model = modelname,
                            discrete_algorithm = d_alg,
@@ -82,8 +83,7 @@ function run_experiments(
 
     Turing.turnprogress(old_prog)
 
-
-    return compare_samplers(m1, m2, p_discrete, p_continuous)
+    return results, compilation_times
 end
 
 const MODEL_SETUPS = Dict([
