@@ -40,12 +40,12 @@ function test_gmm()
 
 
     # Analytic tests
-    μ = graph_gmm[7].value
-    w = graph_gmm[9].value
-    z = graph_gmm[13].value
     x = graph_gmm[2].value
-    p_1 = w[1] .* pdf.(Normal(μ[1], 1.0), x)
-    p_2 = w[2] .* pdf.(Normal(μ[2], 1.0), x)
+    μ = graph_gmm[7].value
+    w = graph_gmm[10].value
+    z = graph_gmm[14].value
+    p_1 = w[1] .* pdf.(Normal(μ[1], s2_gmm), x)
+    p_2 = w[2] .* pdf.(Normal(μ[2], s2_gmm), x)
     (Z1, Z2, Z3) = p_1 .+ p_2
 
     # 𝓅(zᵢ | μ, w, x, z₋ᵢ) ∝ 𝓅(zᵢ | w) * 𝓅(xᵢ | zᵢ, μ)
@@ -64,7 +64,7 @@ end
 
 
 function test_gmm_loopy()
-    model_gmm_loopy = gmm_loopy([0.1, -0.05, 1.0], 2)
+    model_gmm_loopy = gmm_loopy_example()
     graph_gmm_loopy = trackdependencies(model_gmm_loopy)
     @testdependencies(model_gmm_loopy, μ[1], μ[2], w, z[1], z[2], z[3], x[1], x[2], x[3])
     cond_gmm_loopy_z = StaticConditional(model_gmm_loopy, :z)
@@ -73,12 +73,12 @@ function test_gmm_loopy()
 
 
     # Analytic tests
-    μ = [graph_gmm_loopy[19].value, graph_gmm_loopy[28].value]
-    w = graph_gmm_loopy[31].value
-    z = [graph_gmm_loopy[43].value, graph_gmm_loopy[62].value, graph_gmm_loopy[80].value]
     x = graph_gmm_loopy[2].value
-    p_1 = w[1] .* pdf.(Normal(μ[1], 1.0), x)
-    p_2 = w[2] .* pdf.(Normal(μ[2], 1.0), x)
+    μ = [graph_gmm_loopy[19].value, graph_gmm_loopy[28].value]
+    w = graph_gmm_loopy[32].value
+    z = [graph_gmm_loopy[44].value, graph_gmm_loopy[63].value, graph_gmm_loopy[82].value]
+    p_1 = w[1] .* pdf.(Normal(μ[1], s2_gmm), x)
+    p_2 = w[2] .* pdf.(Normal(μ[2], s2_gmm), x)
     (Z1, Z2, Z3) = p_1 .+ p_2
 
     # 𝓅(zᵢ | μ, w, x, z₋ᵢ) ∝ 𝓅(zᵢ | w) * 𝓅(xᵢ | zᵢ, μ)
@@ -99,7 +99,7 @@ end
 
 
 function test_gmm_shifted()
-    model_gmm_shifted = gmm_shifted([0.1, -0.05, 1.0], 2)
+    model_gmm_shifted = gmm_shifted_example()
     graph_gmm_shifted = trackdependencies(model_gmm_shifted)
     @testdependencies(model_gmm_shifted, μ[1], μ[2], w, z[1], z[2], z[3], x[1], x[2], x[3])
     cond_gmm_shifted_z = StaticConditional(model_gmm_shifted, :z)
@@ -116,16 +116,15 @@ function test_hmm()
     @test_nothrow sample(model_hmm, Gibbs(cond_hmm_s, MH(:m, :T)), 500)
     @test_nothrow sample(model_hmm, Gibbs(cond_hmm_s, HMC(0.01, 10, :m, :T)), 500)
 
-
     # Analytic tests
-    T = [graph_hmm[23].value, graph_hmm[38].value]
-    m = [graph_hmm[29].value, graph_hmm[44].value]
-    s1 = graph_hmm[48].value
-    s2 = graph_hmm[68].value
-    s3 = graph_hmm[88].value
     x = graph_hmm[2].value
-    D_obs_1 = Normal(m[1], 0.1)
-    D_obs_2 = Normal(m[2], 0.1)
+    T = [graph_hmm[24].value, graph_hmm[40].value]
+    m = [graph_hmm[30].value, graph_hmm[46].value]
+    s1 = graph_hmm[50].value
+    s2 = graph_hmm[70].value
+    s3 = graph_hmm[91].value
+    D_obs_1 = Normal(m[1], s2_hmm)
+    D_obs_2 = Normal(m[2], s2_hmm)
     p_s1_1 = pdf(Categorical(2), 1) * pdf(Categorical(T[1]), s2) * pdf(D_obs_1, x[1])
     p_s1_2 = pdf(Categorical(2), 2) * pdf(Categorical(T[2]), s2) * pdf(D_obs_2, x[1])
     p_s2_1 = pdf(Categorical(T[s1]), 1) * pdf(Categorical(T[1]), s3) * pdf(D_obs_1, x[2])
