@@ -12,7 +12,7 @@ using Dates
 include("models.jl")
 
 
-const CHAIN_LENGTH = 10 #5_000    # sampling steps
+const CHAIN_LENGTH = 100 #5_000    # sampling steps
 const HMC_LF_SIZE = 0.1   # parameter 1 for HMC
 const HMC_N_STEP = 10     # parameter 2 for HMC
 const BENCHMARK_CHAINS = 10 # number of chains to sample per combination
@@ -33,12 +33,12 @@ function run_experiments(
     old_prog = Turing.PROGRESS[]
     Turing.turnprogress(false)
    
-    for L in (10,)#(10, 25, 50)
+    for L in (10, 25)#(10, 25, 50)
         data = generate(DATA_RNG, L)
         model_ag = example(x = data)
         model_pg = tarray_example(x = data)
 
-        for particles in (5,)#(5, 10, 15)
+        for particles in (5, 10)#(5, 10, 15)
             # get a new conditional for each particle size, so that we have
             # a couple of samples of the compilation time for each L
             start_time = time_ns()
