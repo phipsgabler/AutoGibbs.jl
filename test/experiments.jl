@@ -6,6 +6,7 @@ using AutoGibbs
 using Plots
 using StatsPlots
 using ProgressMeter
+using Dates
 
 
 include("models.jl")
@@ -99,30 +100,40 @@ VARIABLE_NAMES = (
     "repetition"
 )
 
-function serialize_chains(filename_times, filename_chains, observations)
+function print_csv_line(io, values...)
+    join(io, ("\"$(escape_string(string(v)))\"" for v in values), ",")
+end
+
+function serialize_chains(filename_times, filename_diagnostics, filename_chains, observations)
     open(filename_times, "w") do f_times
-        open(filename_chains, "w") do f_chains
-            join(f_times, VARIABLE_NAMES, ",")
-            print(f_times, ",sampling_time")
-            
-            join(f_chains, VARIABLE_NAMES, ",")
-            print(f_chains, ",parameter,step,value")
-            
-            for obs in observations
-                condition_data = Tuple(obs)[1:end-2]
+        open(filename_diagnostics, "w") do f_diag
+            open(filename_chains, "w") do f_chains
+                # write header lines
+                print_csv_line(f_times, VARIABLE_NAMES..., "sampling_time")
+                print_csv_line(f_diag, VARIABLE_NAMES..., "parameter", "diagnostic", "value")
+                print_csv_line(f_chains, VARIABLE_NAMES..., "parameter", "step", "value")
+                
+                for obs in observations
+                    condition_data = Tuple(obs)[1:end-2]
+                    param_names = names(obs.chain, :parameters)
 
-                # write line for the sampling time
-                print(f_times, '\n')
-                join(f_times, condition_data, ",")
-                print(f_times, ",", obs.sampling_time)
+                    # write line for the sampling time to `f_times`
+                    print(f_times, '\n')
+                    print_csv_line(f_times, condition_data..., obs.sampling_time)
 
-                # write line for each parameter and value in the chain
-                param_names = names(obs.chain, :parameters)
-                for (step, sampling) in enumerate(eachrow(Array(obs.chain)))
-                    for (p, value) in zip(param_names, sampling)
-                        print(f_chains, '\n')
-                        join(f_chains, condition_data, ",")
-                        print(f_chains, ",", p, ",", step, ",", value)
+                    # write line for parameter and diagnostic per chain to `f_diag`
+                    diagnostics = ess(obs.chain)
+                    for p in param_names, d in (:ess, :r_hat)
+                        print(f_diag, '\n')
+                        print_csv_line(f_diag, condition_data..., p, d, diagnostics[p, d])
+                    end
+                    
+                    # write line for each parameter and value in the chain to `f_chains`
+                    for (step, sampling) in enumerate(eachrow(Array(obs.chain)))
+                        for (p, value) in zip(param_names, sampling)
+                            print(f_chains, '\n')
+                            print_csv_line(f_chains, condition_data..., p, step, value)
+                        end
                     end
                 end
             end
@@ -132,11 +143,11 @@ end
 
 function serialize_compilation_times(filename, observations)
     open(filename, "w") do f
-        print(f, "model,data_size,sampling_time")
+        print_csv_line(f, "model", "data_size", "sampling_time")
 
         for obs in observations
             print(f, '\n')
-            join(f, obs, ",")
+            print_csv_line(f, obs...)
         end
     end
 end
@@ -156,14 +167,22 @@ function main(modelname, results_path=nothing)
         results_path = "."
     end
 
-    samplingtimes_fn = joinpath(results_path, "sampling_times.csv")
-    chains_fn = joinpath(results_path, "chains.csv")
-    compiletimes_fn = joinpath(results_path, "compile_times.csv")
+    timestamp = round(Dates.now(), Dates.Minute)
+    samplingtimes_fn = joinpath(results_path, "sampling_times-$timestamp.csv")
+    diagnostics_fn = joinpath(results_path, "diagnostics-$timestamp.csv")
+    chains_fn = joinpath(results_path, "chains-$timestamp.csv")
+    compiletimes_fn = joinpath(results_path, "compile_times-$timestamp.csv")
     
     if haskey(MODEL_SETUPS, modelname)
         chains, compilation_times = run_experiments(modelname, MODEL_SETUPS[modelname]...)
-        serialize_chains(samplingtimes_fn, chains_fn, chains)
+        serialize_chains(samplingtimes_fn, diagnostics_fn, chains_fn, chains)
         serialize_compilation_times(compiletimes_fn, compilation_times)
+
+        # overwrite the version without time stamp
+        cp(samplingtimes_fn, joinpath(results_path, "sampling_times.csv"), force=true)
+        cp(diagnostics_fn, joinpath(results_path, "diagnostics.csv"), force=true)
+        cp(chains_fn, joinpath(results_path, "chains.csv"), force=true)
+        cp(compiletimes_fn, joinpath(results_path, "compile_times.csv"), force=true)
     else
         println("Unknown model: $modelname")
     end
