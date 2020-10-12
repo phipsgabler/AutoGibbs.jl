@@ -13,12 +13,12 @@ using InteractiveUtils
 include("models.jl")
 
 
-const CHAIN_LENGTH = 10 #5_000   # sampling steps
+const CHAIN_LENGTH = 5_000   # sampling steps
 const HMC_LF_SIZE = 0.1      # parameter 1 for HMC
 const HMC_N_STEP = 10        # parameter 2 for HMC
 const BENCHMARK_CHAINS = 10  # number of chains to sample per combination
-const DATA_SIZES = (5,)# (10, 25, 50, 100)
-const N_PARTICLES = (5,)#(5, 10, 15)
+const DATA_SIZES = (10, 25, 50, 100)
+const N_PARTICLES = (5, 10, 15)
 const DATA_RNG = MersenneTwister(424242)
 
 
@@ -40,6 +40,8 @@ function run_experiments(
         model_ag = example(x = data)
         model_pg = tarray_example(x = data)
 
+        GC.gc()
+        
         for (i, particles) in enumerate(N_PARTICLES)
             # get a new conditional for each particle size, so that we have
             # a couple of samples of the compilation time for each L
@@ -65,6 +67,8 @@ function run_experiments(
                 ("PG", "HMC") => (model_pg, Gibbs(pg, hmc))
             ])
 
+            GC.gc()
+            
             for ((d_alg, c_alg), (model, sampler)) in combinations
                 @info "Sampling $BENCHMARK_CHAINS chains using $d_alg+$c_alg with data size $L and $particles particles"
                 progress = Progress(BENCHMARK_CHAINS)
@@ -159,7 +163,6 @@ function serialize_compilation_times(filename, observations)
         end
     end
 end
-
 
 
 const MODEL_SETUPS = Dict([

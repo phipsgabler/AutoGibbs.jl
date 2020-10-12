@@ -1,0 +1,54 @@
+Using 4 threads for parallel test chains.
+[ Info: [Turing]: progress logging is disabled globally
+[ Info: Compiled conditional for data size 10 in 69.038768571 seconds
+[ Info: Sampling 10 chains using AG+HMC with data size 10 and 5 particles
+Progress: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| Time: 0:01:30
+[ Info: Sampling 10 chains using PG+HMC with data size 10 and 5 particles
+Progress: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| Time: 0:01:44
+[ Info: Compiled conditional for data size 10 in 2.577392097 seconds
+[ Info: Sampling 10 chains using AG+HMC with data size 10 and 10 particles
+Progress: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| Time: 0:00:59
+[ Info: Sampling 10 chains using PG+HMC with data size 10 and 10 particles
+Progress: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| Time: 0:02:14
+[ Info: Compiled conditional for data size 10 in 2.546134079 seconds
+[ Info: Sampling 10 chains using AG+HMC with data size 10 and 15 particles
+Progress: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| Time: 0:00:57
+[ Info: Sampling 10 chains using PG+HMC with data size 10 and 15 particles
+Progress: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| Time: 0:02:54
+[ Info: Compiled conditional for data size 25 in 28.539282056 seconds
+[ Info: Sampling 10 chains using AG+HMC with data size 25 and 5 particles
+Progress: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| Time: 0:03:03
+[ Info: Sampling 10 chains using PG+HMC with data size 25 and 5 particles
+Progress: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| Time: 0:03:06
+[ Info: Compiled conditional for data size 25 in 12.952717998 seconds
+[ Info: Sampling 10 chains using AG+HMC with data size 25 and 10 particles
+Progress: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| Time: 0:03:26
+[ Info: Sampling 10 chains using PG+HMC with data size 25 and 10 particles
+Progress: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| Time: 0:04:35
+[ Info: Compiled conditional for data size 25 in 13.120257687 seconds
+[ Info: Sampling 10 chains using AG+HMC with data size 25 and 15 particles
+Progress: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| Time: 0:03:03
+[ Info: Sampling 10 chains using PG+HMC with data size 25 and 15 particles
+Progress: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| Time: 0:06:16
+[ Info: Compiled conditional for data size 50 in 75.727674322 seconds
+[ Info: Sampling 10 chains using AG+HMC with data size 50 and 5 particles
+Progress: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| Time: 0:09:21
+[ Info: Sampling 10 chains using PG+HMC with data size 50 and 5 particles
+Progress: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| Time: 0:05:20
+[ Info: Compiled conditional for data size 50 in 42.450550788 seconds
+[ Info: Sampling 10 chains using AG+HMC with data size 50 and 10 particles
+Progress: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| Time: 0:09:18
+[ Info: Sampling 10 chains using PG+HMC with data size 50 and 10 particles
+Progress: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| Time: 0:08:08
+[ Info: Compiled conditional for data size 50 in 43.771074757 seconds
+[ Info: Sampling 10 chains using AG+HMC with data size 50 and 15 particles
+Progress: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| Time: 0:09:25
+[ Info: Sampling 10 chains using PG+HMC with data size 50 and 15 particles
+Progress: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| Time: 0:11:06
+[ Info: Compiled conditional for data size 100 in 244.983733656 seconds
+[ Info: Sampling 10 chains using AG+HMC with data size 100 and 5 particles
+Progress: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| Time: 0:35:20
+[ Info: Sampling 10 chains using PG+HMC with data size 100 and 5 particles
+Progress: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| Time: 0:13:37
+[ Info: Compiled conditional for data size 100 in 187.492107288 seconds
+[ Info: Sampling 10 chains using AG+HMC with data size 100 and 10 particles
