@@ -169,10 +169,10 @@ function main(modelname, results_path=nothing)
     end
 
     timestamp = round(Dates.now(), Dates.Minute)
-    samplingtimes_fn = joinpath(results_path, "sampling_times-$timestamp.csv")
-    diagnostics_fn = joinpath(results_path, "diagnostics-$timestamp.csv")
-    chains_fn = joinpath(results_path, "chains-$timestamp.csv")
-    compiletimes_fn = joinpath(results_path, "compile_times-$timestamp.csv")
+    samplingtimes_fn = joinpath(results_path, "$modelname-ssampling_times-$timestamp.csv")
+    diagnostics_fn = joinpath(results_path, "$modelname-sdiagnostics-$timestamp.csv")
+    chains_fn = joinpath(results_path, "$modelname-schains-$timestamp.csv")
+    compiletimes_fn = joinpath(results_path, "$modelname-scompile_times-$timestamp.csv")
     
     if haskey(MODEL_SETUPS, modelname)
         chains, compilation_times = run_experiments(modelname, MODEL_SETUPS[modelname]...)
@@ -180,10 +180,10 @@ function main(modelname, results_path=nothing)
         serialize_compilation_times(compiletimes_fn, compilation_times)
 
         # overwrite the version without time stamp
-        cp(samplingtimes_fn, joinpath(results_path, "sampling_times.csv"), force=true)
-        cp(diagnostics_fn, joinpath(results_path, "diagnostics.csv"), force=true)
-        cp(chains_fn, joinpath(results_path, "chains.csv"), force=true)
-        cp(compiletimes_fn, joinpath(results_path, "compile_times.csv"), force=true)
+        cp(samplingtimes_fn, joinpath(results_path, "$modelname-sampling_times.csv"), force=true)
+        cp(diagnostics_fn, joinpath(results_path, "$modelname-sdiagnostics.csv"), force=true)
+        cp(chains_fn, joinpath(results_path, "$modelname-schains.csv"), force=true)
+        cp(compiletimes_fn, joinpath(results_path, "$modelname-scompile_times.csv"), force=true)
     else
         println("Unknown model: $modelname")
     end
