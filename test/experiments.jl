@@ -38,7 +38,7 @@ function run_experiments(
         model_ag = example(x = data)
         model_pg = tarray_example(x = data)
 
-        for particles in (5, 10)#(5, 10, 15)
+        for (i, particles) in enumerate((5, 10))#(5, 10, 15)
             # get a new conditional for each particle size, so that we have
             # a couple of samples of the compilation time for each L
             start_time = time_ns()
@@ -49,6 +49,7 @@ function run_experiments(
             push!(compilation_times,
                   (model = modelname,
                    data_size = L,
+                   repetition = i,
                    compilation_time = compilation_time))
             
             mh = MH(p_continuous...)
@@ -143,7 +144,7 @@ end
 
 function serialize_compilation_times(filename, observations)
     open(filename, "w") do f
-        print_csv_line(f, "model", "data_size", "sampling_time")
+        print_csv_line(f, "model", "data_size", "repetition", "compilation_time")
 
         for obs in observations
             print(f, '\n')
