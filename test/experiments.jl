@@ -7,15 +7,18 @@ using Plots
 using StatsPlots
 using ProgressMeter
 using Dates
+using InteractiveUtils
 
 
 include("models.jl")
 
 
-const CHAIN_LENGTH = 100 #5_000    # sampling steps
-const HMC_LF_SIZE = 0.1   # parameter 1 for HMC
-const HMC_N_STEP = 10     # parameter 2 for HMC
-const BENCHMARK_CHAINS = 10 # number of chains to sample per combination
+const CHAIN_LENGTH = 10 #5_000   # sampling steps
+const HMC_LF_SIZE = 0.1      # parameter 1 for HMC
+const HMC_N_STEP = 10        # parameter 2 for HMC
+const BENCHMARK_CHAINS = 10  # number of chains to sample per combination
+const DATA_SIZES = (5,)# (10, 25, 50, 100)
+const N_PARTICLES = (5,)#(5, 10, 15)
 const DATA_RNG = MersenneTwister(424242)
 
 
@@ -25,62 +28,65 @@ function run_experiments(
     example,
     tarray_example,
     p_discrete,
-    p_continuous
+    p_continuous,
+    compilation_times_channel,
+    chains_channel
 )
-    chains = []
-    compilation_times = []
-
     old_prog = Turing.PROGRESS[]
     Turing.turnprogress(false)
    
-    for L in (10, 25)#(10, 25, 50)
+    for L in DATA_SIZES
         data = generate(DATA_RNG, L)
         model_ag = example(x = data)
         model_pg = tarray_example(x = data)
 
-        for (i, particles) in enumerate((5, 10))#(5, 10, 15)
+        for (i, particles) in enumerate(N_PARTICLES)
             # get a new conditional for each particle size, so that we have
             # a couple of samples of the compilation time for each L
             start_time = time_ns()
             static_conditional = StaticConditional(model_ag, p_discrete)
             compilation_time = (time_ns() - start_time) / 1e9
-            @info "Compiled conditional in $compilation_time seconds"
+            @info "Compiled conditional for data size $L in $compilation_time seconds"
             
-            push!(compilation_times,
+            put!(compilation_times_channel,
                   (model = modelname,
                    data_size = L,
                    repetition = i,
                    compilation_time = compilation_time))
             
-            mh = MH(p_continuous...)
+            # mh = MH(p_continuous...)
             hmc = HMC(HMC_LF_SIZE, HMC_N_STEP, p_continuous...)
             pg = PG(particles, p_discrete)
 
             combinations = Dict([
                 # ("AG", "MH") => (model_ag, Gibbs(static_conditional, mh)),
-                # ("AG", "HMC") => (model_ag, Gibbs(static_conditional, hmc)),
-                ("PG", "MH") => (model_pg, Gibbs(pg, mh)),
+                ("AG", "HMC") => (model_ag, Gibbs(static_conditional, hmc)),
+                # ("PG", "MH") => (model_pg, Gibbs(pg, mh)),
                 ("PG", "HMC") => (model_pg, Gibbs(pg, hmc))
             ])
 
             for ((d_alg, c_alg), (model, sampler)) in combinations
                 @info "Sampling $BENCHMARK_CHAINS chains using $d_alg+$c_alg with data size $L and $particles particles"
-                @showprogress for n in 1:BENCHMARK_CHAINS
+                progress = Progress(BENCHMARK_CHAINS)
+                
+                Threads.@threads for n in 1:BENCHMARK_CHAINS
                     start_time = time_ns()
                     chain = sample(model, sampler, CHAIN_LENGTH)
                     # sample(model, sampler, MCMCThreads(), 10, N)
                     sampling_time = (time_ns() - start_time) / 1e9
                     
-                    push!(chains,
-                          (model = modelname,
-                           discrete_algorithm = d_alg,
-                           continuous_algorithm = c_alg,
-                           particles = particles,
-                           data_size = L,
-                           repetition = n,
-                           sampling_time = sampling_time,
-                           chain = chain,
-                           ))
+                    put!(chains_channel,
+                         (model = modelname,
+                          discrete_algorithm = d_alg,
+                          continuous_algorithm = c_alg,
+                          particles = particles,
+                          data_size = L,
+                          repetition = n,
+                          sampling_time = sampling_time,
+                          chain = chain,
+                          ))
+                    
+                    next!(progress)
                 end
             end
         end
@@ -88,7 +94,8 @@ function run_experiments(
 
     Turing.turnprogress(old_prog)
 
-    return chains, compilation_times
+    close(compilation_times_channel)
+    close(chains_channel)
 end
 
 
@@ -169,21 +176,36 @@ function main(modelname, results_path=nothing)
     end
 
     timestamp = round(Dates.now(), Dates.Minute)
-    samplingtimes_fn = joinpath(results_path, "$modelname-ssampling_times-$timestamp.csv")
-    diagnostics_fn = joinpath(results_path, "$modelname-sdiagnostics-$timestamp.csv")
-    chains_fn = joinpath(results_path, "$modelname-schains-$timestamp.csv")
-    compiletimes_fn = joinpath(results_path, "$modelname-scompile_times-$timestamp.csv")
+    samplingtimes_fn = abspath(results_path, "$modelname-sampling_times-$timestamp.csv")
+    diagnostics_fn = abspath(results_path, "$modelname-diagnostics-$timestamp.csv")
+    chains_fn = abspath(results_path, "$modelname-chains-$timestamp.csv")
+    compiletimes_fn = abspath(results_path, "$modelname-compile_times-$timestamp.csv")
+
+    samplingtimes_fn_nodate = abspath(results_path, "$modelname-sampling_times.csv")
+    diagnostics_fn_nodate = abspath(results_path, "$modelname-diagnostics.csv")
+    chains_fn_nodate = abspath(results_path, "$modelname-chains.csv")
+    compiletimes_fn_nodate = abspath(results_path, "$modelname-compile_times.csv")
     
     if haskey(MODEL_SETUPS, modelname)
-        chains, compilation_times = run_experiments(modelname, MODEL_SETUPS[modelname]...)
-        serialize_chains(samplingtimes_fn, diagnostics_fn, chains_fn, chains)
-        serialize_compilation_times(compiletimes_fn, compilation_times)
+        compilation_times_channel = Channel()
+        chains_channel = Channel()
+        
+        @sync begin
+            @async run_experiments(modelname, MODEL_SETUPS[modelname]...,
+                                   compilation_times_channel,
+                                   chains_channel)
+            @async serialize_chains(samplingtimes_fn, diagnostics_fn, chains_fn, chains_channel)
+            @async serialize_compilation_times(compiletimes_fn, compilation_times_channel)
+        end
 
-        # overwrite the version without time stamp
-        cp(samplingtimes_fn, joinpath(results_path, "$modelname-sampling_times.csv"), force=true)
-        cp(diagnostics_fn, joinpath(results_path, "$modelname-sdiagnostics.csv"), force=true)
-        cp(chains_fn, joinpath(results_path, "$modelname-schains.csv"), force=true)
-        cp(compiletimes_fn, joinpath(results_path, "$modelname-scompile_times.csv"), force=true)
+        # overwrite a symlink to the latest version, without time stamp
+        for (file, link) in zip(
+            (samplingtimes_fn, diagnostics_fn, chains_fn, compiletimes_fn),
+            (samplingtimes_fn_nodate, diagnostics_fn_nodate, chains_fn_nodate, compiletimes_fn_nodate)
+        )
+            rm(link, force=true)
+            symlink(file, link)
+        end
     else
         println("Unknown model: $modelname")
     end
@@ -191,5 +213,9 @@ end
 
 
 if abspath(PROGRAM_FILE) == @__FILE__
+    println("Using $(Threads.nthreads()) threads for parallel test chains.")
     main(ARGS...)
+
+    println("Executed on:")
+    InteractiveUtils.versioninfo()
 end
