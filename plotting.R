@@ -60,9 +60,29 @@ ggsave("results/GMM-diagnostics.pdf", diagnostics_plot_gmm, device = cairo_pdf)
 
 
 thin_chains <- chains %>%
-    filter(discrete_algorithm == "AG", repetition %in% 1:3, step %% 37 == 0) %>%
+    filter(discrete_algorithm == "AG", repetition %in% 1:3, step %% 37 == 0, particles == 10) %>%
     filter((!startsWith(parameter, "z") | parameter == "z[1]")) %>%
     select(-model, -discrete_algorithm, -continuous_algorithm, -particles)
+
+densities_plot_gmm <- thin_chains %>%
+    ## arrange(particles) %>%
+    ## mutate(algorithm = as_factor(str_c(discrete_algorithm, " & ", continuous_algorithm,
+                                       ## ifelse(discrete_algorithm == "PG",
+                                              ## str_c(", \n", particles, " particles"),
+                                              ## "")))) %>%
+    ggplot(aes(x = value,
+               color = as_factor(repetition))) +
+    geom_density() +
+    facet_grid(parameter ~ data_size,
+               labeller = labeller(data_size = obs_labeller),
+               scales = "free") +
+    guides(color = F) + 
+    labs(x = "Value", y = "Probability",
+         title = "AG posterior densities",
+         subtitle = paste("Factored by number of observations (data size)",
+                          "and selected parameters"))
+ggsave("results/GMM-densities.pdf", densities_plot_gmm, device = cairo_pdf)
+
 
 chains_plot_gmm <- thin_chains %>%
     ## arrange(particles) %>%
@@ -83,11 +103,10 @@ chains_plot_gmm <- thin_chains %>%
          color = "Chain", title = "AG chains",
          subtitle = paste("Factored by number of observations (data size)",
                           "and selected parameters"))
-ggsave("results/GMM-chains.pdf", chains_plot_gmm, device = cairo_pdf)
 
 
 chains_by_param <- chains %>%
-    filter(discrete_algorithm == "AG", repetition == 3, particles == 10) %>%
+    filter(discrete_algorithm == "AG", repetition == 1, particles == 10) %>%
     filter((!startsWith(parameter, "z") | parameter == "z[10]")) %>%
     select(-model, -discrete_algorithm, -continuous_algorithm, -particles) %>%
     group_by(parameter, data_size)
