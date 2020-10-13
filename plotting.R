@@ -1,61 +1,58 @@
 library(tidyverse)
 
-sampling_times <- read_csv("results/sampling_times.csv") %>%
-    mutate(particles = as.factor(particles), data_size = as.factor(data_size))
-diagnostics <- read_csv("results/diagnostics.csv") %>%
-    mutate(particles = as.factor(particles),
-           data_size = as.factor(data_size),
-           diagnostic = as.factor(diagnostic))
+base_font <- "Linux Biolinum O"
+theme_set(theme_light(base_family = base_font))
+
+sampling_times <- read_csv("results/GMM-sampling_times-2020-10-12T19:21:00.csv")
+diagnostics <- read_csv("results/GMM-diagnostics-2020-10-12T19:21:00.csv") %>%
+    mutate(diagnostic = as.factor(diagnostic))
 chains <- read_csv("results/chains.csv") %>%
     mutate(particles = as.factor(particles),
            data_size = as.factor(data_size))
-compile_times <- read_csv("results/compile_times.csv") %>%
-    mutate(data_size = as.factor(data_size)) %>%
-    transmute(is_first = repetition == 1) %>%
-    rename(compile_time = sampling_time)
+compile_times <- read_csv("results/GMM-compile_times-2020-10-12T19:21:00.csv") %>%
+    mutate(is_first = repetition == 1)
 
 obs_labeller <- as_labeller(function(obs) paste(obs, "observations"))
 particles_labeller <- as_labeller(function(p) paste(p, "particles"))
+isfirst_labeller <- as_labeller(function (p) ifelse(p, "First", "Other"))
 ## diagnostics_labeller <- function (d) ifelse(d == "ess", bquote(ESS), bquote(R))
 
 
-sampling_times %>% filter(repetition > 1, discrete_algorithm == "PG") %>%
-    ggplot(aes(x = continuous_algorithm,
-               y = sampling_time,
-               color =  data_size)) +
-    ## stat_boxplot(geom = "errorbar") +
-    geom_point(position = position_jitterdodge()) +
-    facet_grid(. ~ particles, scales = "free_y", labeller = particles_labeller) +
-    theme_light() +
-    labs(x = "Algorithm", y = "Sampling time (s)",
-         color = "Observations", title = "Sampling times for Particle Gibbs",
-         subtitle = "Factored by number of particles")
+samplingtime_plot_gmm <- sampling_times %>%
+    arrange(particles) %>%
+    mutate(algorithm = as_factor(str_c(discrete_algorithm, " & ", continuous_algorithm,
+                                       ifelse(discrete_algorithm == "PG",
+                                              str_c(", ", particles, " particles"),
+                                              "")))) %>%
+    ggplot(aes(x = data_size,
+               group = data_size,
+               y = sampling_time)) +
+    geom_boxplot(outlier.alpha = 0.2) +
+    ## geom_errorbar(stat = "summary", color = "red") +
+    ## geom_point(alpha = 0.5) +
+    facet_grid(. ~ algorithm, scales = "free_x") +
+    scale_x_continuous(breaks = unique(sampling_times$data_size)) +
+    labs(x = "Observations (data size)", y = "Sampling time (s)",
+         color = "Observations", title = "Sampling times",
+         subtitle = "Factored by algorithm and number of PG particles")
+ggsave("results/GMM-sampling_times.pdf", samplingtime_plot_gmm, device = cairo_pdf)
 
-sampling_times %>% filter(repetition > 1, discrete_algorithm == "AG") %>%
-    ggplot(aes(x = continuous_algorithm,
-               y = sampling_time,
-               color =  data_size)) +
-    ## stat_boxplot(geom = "errorbar") +
-    geom_point(position = position_jitterdodge()) +
-    ## facet_grid(. ~ as.factor(particles), scales = "free_y") +
-    theme_light() +
-    labs(x = "Algorithm", y = "Sampling time (s)",
-         color = "Data size", title = "Sampling times for AutoGibbs")
-
-
-diagnostics %>%
-    filter(repetition > 1, (diagnostic == "ess" | value < 20), discrete_algorithm == "PG") %>%
-    ggplot(aes(x = continuous_algorithm,
-               y = value,
-               color = data_size)) +
-    geom_point(position = position_jitterdodge()) +
-    facet_grid(diagnostic ~ particles, scales = "free_y",
-               labeller = labeller(particles = particles_labeller)) +
-    theme_light() +
-    labs(x = "Algorithm", y = "Value",
-         color = "Data size", title = "Convergence diagnostics of Particle Gibbs",
-         subtitle = expression(paste("Factored by number of particles; ",
-                                     hat(R), " outliers over 20 removed for readability")))
+diagnostics_plot_gmm <- diagnostics %>%
+    arrange(particles) %>%
+    mutate(algorithm = as_factor(str_c(discrete_algorithm, " & ", continuous_algorithm,
+                                       ifelse(discrete_algorithm == "PG",
+                                              str_c(", ", particles, " particles"),
+                                              "")))) %>%
+    ggplot(aes(x = data_size,
+               group = data_size,
+               y = value)) +
+    geom_boxplot(outlier.alpha = 0.2) +
+    facet_grid(diagnostic ~ algorithm, scales = "free") +
+    scale_x_continuous(breaks = unique(diagnostics$data_size)) +
+    labs(x = "Observations (data size)", y = "Value of diagnostic",
+         color = "Observations", title = "Convergence diagnostics",
+         subtitle = "Factored by algorithm and number of particles")
+ggsave("results/GMM-diagnostics.pdf", diagnostics_plot_gmm, device = cairo_pdf)
 
 chains_pg <- chains %>%
     filter(discrete_algorithm == "PG", (!startsWith(parameter, "z") | parameter == "z[1]")) %>%
@@ -89,13 +86,23 @@ chains %>% filter(discrete_algorithm == "PG", (!startsWith(parameter, "z") | par
          color = "Chain", title = "Chains",
          subtitle = expression(paste("Factored by number of particles; ")))
 
-compile_times %>%
+## filter(compile_times, is_first == F) %>%
+compiletime_plot_gmm <- compile_times %>%
     ggplot(aes(x = data_size,
-               y = compile_time)) +
-    geom_boxplot() + 
-    geom_point(position = position_jitter(height = 0, width = 0.05)) +
-    ## stat_boxplot(geom = "errorbar") +
-    theme_light() +
-    labs(x = "Data size", y = "Compilation time (s)",
-         title = "Extraction times for AutoGibbs")
-
+               y = compilation_time,
+               shape = as_factor(ifelse(is_first, "First", "Other")))) +
+    geom_point(alpha = 0.5, size = 3) +
+    geom_smooth(formula = y ~ I(x^2), method = "lm", se = F,
+                data = filter(compile_times, is_first == F),
+                color = "black") +
+    annotate("text", x = 85, y = 100,
+             label = expression("Linear fit of" ~ time %~% datasize^2),
+             family = base_font) + 
+    ## scale_x_continuous(breaks = unique(compile_times$data_size)) +
+    labs(x = "Observations (data size)", y = "Extraction time (s)",
+         shape = "Repetition",
+         title = "Extraction times for AutoGibbs",
+         subtitle = paste(
+             "Measuring both compilation of the traced code and the conditional calculation.",
+             "All 2 or 3 repetitions per data size class are shown."))
+ggsave("results/GMM-compile_times.pdf", compiletime_plot_gmm, device = cairo_pdf)
