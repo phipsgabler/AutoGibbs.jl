@@ -58,10 +58,13 @@ diagnostics_plot_gmm <- diagnostics %>%
          subtitle = "Factored by algorithm and number of particles")
 ggsave("results/GMM-diagnostics.pdf", diagnostics_plot_gmm, device = cairo_pdf)
 
-chains_plot_gmm <- chains %>%
+
+thin_chains <- chains %>%
     filter(discrete_algorithm == "AG", repetition %in% 1:3, step %% 37 == 0) %>%
     filter((!startsWith(parameter, "z") | parameter == "z[1]")) %>%
-    select(-model, -discrete_algorithm, -continuous_algorithm, -particles) %>%
+    select(-model, -discrete_algorithm, -continuous_algorithm, -particles)
+
+chains_plot_gmm <- thin_chains %>%
     ## arrange(particles) %>%
     ## mutate(algorithm = as_factor(str_c(discrete_algorithm, " & ", continuous_algorithm,
                                        ## ifelse(discrete_algorithm == "PG",
@@ -82,20 +85,38 @@ chains_plot_gmm <- chains %>%
                           "and selected parameters"))
 ggsave("results/GMM-chains.pdf", chains_plot_gmm, device = cairo_pdf)
 
-chains %>% filter(discrete_algorithm == "PG", (!startsWith(parameter, "z") | parameter == "z[1]")) %>%
-    ggplot(aes(x = value,
-               color = as.factor(repetition))) +
-    geom_density() +
-    ## geom_density() +
-    facet_grid(parameter ~ continuous_algorithm + data_size + particles,
-               labeller = labeller(particles = particles_labeller,
-                                   data_size = obs_labeller),
-               scales = "free_y") +
-    guides(color = F) + 
-    theme_light() +
-    labs(x = "Step", y = "Value",
-         color = "Chain", title = "Chains",
-         subtitle = expression(paste("Factored by number of particles; ")))
+
+chains_by_param <- chains %>%
+    filter(discrete_algorithm == "AG", repetition == 3, particles == 10) %>%
+    filter((!startsWith(parameter, "z") | parameter == "z[10]")) %>%
+    select(-model, -discrete_algorithm, -continuous_algorithm, -particles) %>%
+    group_by(parameter, data_size)
+significance_levels <- chains_by_param %>%
+    summarize(significance_level = qnorm((1 + 0.95) / 2) / sqrt(sum(!is.na(value))))
+
+acfs <- chains_by_param %>%
+    do({
+        a <- acf(.$value, plot=F)
+        summarize(., lag = a$lag, acf = a$acf)
+    })
+    
+
+acf_plot_gmm <- acfs %>%
+    ggplot(aes(x = lag, y = acf)) +
+    geom_linerange(aes(ymin = 0, ymax = acf)) +
+    facet_grid(parameter ~ data_size,
+               labeller = labeller(data_size = obs_labeller)) +
+    geom_hline(aes(yintercept = significance_level), lty=3,
+               data = significance_levels) +
+    geom_hline(aes(yintercept = -significance_level), lty=3,
+               data = significance_levels) +
+    labs(x = 'Lag', y = 'ACF',
+         title = "Autocorrelation",
+         subtitle = "ACF plots for one sample chain per data size")
+ggsave("results/GMM-acfs.pdf", acf_plot_gmm, device = cairo_pdf)
+
+
+
 
 ## filter(compile_times, is_first == F) %>%
 compiletime_plot_gmm <- compile_times %>%
