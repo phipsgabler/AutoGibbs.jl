@@ -1,5 +1,6 @@
 #!/bin/sh
-#SBATCH 
+#SBATCH -D /clusterFS/home/user/phg/git/AutoGibbs.jl
+#SBATCH --export=HOME=/clusterFS/home/user/phg,TERM,JULIA_DEPOT_PATH=/clusterFS/home/user/phg/julia_depot
 
 julia="julia_1.3.1.afs --project"
 homepath="/clusterFS/home/user/${USER}"
@@ -13,6 +14,5 @@ model="gmm"
 ${julia} ${runpath} ${model} ${resultspath}
 
 # Running an interactive session:
-# srun -J "test julia" -p labor -D /clusterFS/home/user/phg --export=HOME=/clusterFS/home/user/phg,TERM,JULIA_DEPOT_PATH=/clusterFS/home/user/phg/julia_depot -l test.sh
-# srun -p simulation12 --mem 20G --pty /bin/bash -l
-# --cpus-per-task 1 --time 48:00:00 -D /clusterFS/home/user/${USER} --export=HOME=/clusterFS/home/user/${USER},TERM,JULIA_DEPOT_PATH=/clusterFS/home/user/phg/julia_depot
+# srun -J "test" -p labor  -l test.sh
+# srun -J "autogibbs" -p simulation12 slurm/run.sh
