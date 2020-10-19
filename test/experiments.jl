@@ -3,8 +3,6 @@ using Turing.RandomMeasures
 using DynamicPPL
 using Random
 using AutoGibbs
-using Plots
-using StatsPlots
 using ProgressMeter
 using Dates
 using InteractiveUtils
@@ -13,34 +11,36 @@ using InteractiveUtils
 include("models.jl")
 
 
-const CHAIN_LENGTH = 5_000   # sampling steps
+# parameters for chain replication
+const CHAIN_LENGTH = 100 #5_000   # sampling steps
 const HMC_LF_SIZE = 0.1      # parameter 1 for HMC
 const HMC_N_STEP = 10        # parameter 2 for HMC
-const BENCHMARK_CHAINS = 10  # number of chains to sample per combination
-const DATA_SIZES = (10, 25, 50, 100)
-const N_PARTICLES = (5, 10, 15)
 const DATA_RNG = MersenneTwister(424242)
+
+
+# grid parameters
+const DATA_SIZES = (10, 25) #(10, 25, 50, 100)
+const N_PARTICLES = (10, 25) #(5, 10, 15)
+const BENCHMARK_CHAINS = 2 #10  # number of chains to sample per combination
 
 
 function run_experiments(
     modelname,
-    generate,
-    example,
-    tarray_example,
-    p_discrete,
-    p_continuous,
+    setup,
     compilation_times_channel,
     chains_channel
 )
+    generate, example, tarray_example, p_discrete, p_continuous = setup
+    
     old_prog = Turing.PROGRESS[]
     Turing.turnprogress(false)
-   
-    for L in DATA_SIZES
-        data = generate(DATA_RNG, L)
+
+    GC.gc()
+
+    for data_size in DATA_SIZES
+        data = generate(DATA_RNG, data_size)
         model_ag = example(x = data)
         model_pg = tarray_example(x = data)
-
-        GC.gc()
         
         for (i, particles) in enumerate(N_PARTICLES)
             # get a new conditional for each particle size, so that we have
@@ -48,13 +48,13 @@ function run_experiments(
             start_time = time_ns()
             static_conditional = StaticConditional(model_ag, p_discrete)
             compilation_time = (time_ns() - start_time) / 1e9
-            @info "Compiled conditional for data size $L in $compilation_time seconds"
+            @info "Compiled conditional for data size $data_size in $compilation_time seconds"
             
             put!(compilation_times_channel,
-                  (model = modelname,
-                   data_size = L,
-                   repetition = i,
-                   compilation_time = compilation_time))
+                 (model = modelname,
+                  data_size = data_size,
+                  repetition = i,
+                  compilation_time = compilation_time))
             
             # mh = MH(p_continuous...)
             hmc = HMC(HMC_LF_SIZE, HMC_N_STEP, p_continuous...)
@@ -70,10 +70,8 @@ function run_experiments(
             GC.gc()
             
             for ((d_alg, c_alg), (model, sampler)) in combinations
-                @info "Sampling $BENCHMARK_CHAINS chains using $d_alg+$c_alg with data size $L and $particles particles"
-                progress = Progress(BENCHMARK_CHAINS)
-                
-                Threads.@threads for n in 1:BENCHMARK_CHAINS
+                @info "Sampling $BENCHMARK_CHAINS chains using $d_alg+$c_alg with data size $data_size and $particles particles"
+                @showprogress for repetition in 1:BENCHMARK_CHAINS
                     start_time = time_ns()
                     chain = sample(model, sampler, CHAIN_LENGTH)
                     # sample(model, sampler, MCMCThreads(), 10, N)
@@ -84,13 +82,13 @@ function run_experiments(
                           discrete_algorithm = d_alg,
                           continuous_algorithm = c_alg,
                           particles = particles,
-                          data_size = L,
-                          repetition = n,
+                          data_size = data_size,
+                          repetition = repetition,
                           sampling_time = sampling_time,
                           chain = chain,
                           ))
-                    
-                    next!(progress)
+
+                    GC.gc()
                 end
             end
         end
@@ -171,7 +169,8 @@ const MODEL_SETUPS = Dict([
     "IMM" => (imm_stick_generate, imm_stick_example, imm_stick_tarray_example, :z, (:μ, :v))
 ])
 
-function main(modelname, results_path=nothing)
+
+function main(modelname, results_path=nothing; symlinks=false)
     modelname = uppercase(modelname)
     
     if isnothing(results_path)
@@ -184,24 +183,27 @@ function main(modelname, results_path=nothing)
     chains_fn = abspath(results_path, "$modelname-chains-$timestamp.csv")
     compiletimes_fn = abspath(results_path, "$modelname-compile_times-$timestamp.csv")
 
-    samplingtimes_fn_nodate = abspath(results_path, "$modelname-sampling_times.csv")
-    diagnostics_fn_nodate = abspath(results_path, "$modelname-diagnostics.csv")
-    chains_fn_nodate = abspath(results_path, "$modelname-chains.csv")
-    compiletimes_fn_nodate = abspath(results_path, "$modelname-compile_times.csv")
-    
     if haskey(MODEL_SETUPS, modelname)
         compilation_times_channel = Channel()
         chains_channel = Channel()
+
         
         @sync begin
-            @async run_experiments(modelname, MODEL_SETUPS[modelname]...,
+            @async run_experiments(modelname,
+                                   MODEL_SETUPS[modelname],
                                    compilation_times_channel,
                                    chains_channel)
             @async serialize_chains(samplingtimes_fn, diagnostics_fn, chains_fn, chains_channel)
             @async serialize_compilation_times(compiletimes_fn, compilation_times_channel)
         end
 
+    if symlinks
         # overwrite a symlink to the latest version, without time stamp
+        samplingtimes_fn_nodate = abspath(results_path, "$modelname-sampling_times.csv")
+        diagnostics_fn_nodate = abspath(results_path, "$modelname-diagnostics.csv")
+        chains_fn_nodate = abspath(results_path, "$modelname-chains.csv")
+        compiletimes_fn_nodate = abspath(results_path, "$modelname-compile_times.csv") 
+        
         for (file, link) in zip(
             (samplingtimes_fn, diagnostics_fn, chains_fn, compiletimes_fn),
             (samplingtimes_fn_nodate, diagnostics_fn_nodate, chains_fn_nodate, compiletimes_fn_nodate)
@@ -209,6 +211,7 @@ function main(modelname, results_path=nothing)
             rm(link, force=true)
             symlink(file, link)
         end
+    end
     else
         println("Unknown model: $modelname")
     end
@@ -216,9 +219,8 @@ end
 
 
 if abspath(PROGRAM_FILE) == @__FILE__
-    println("Using $(Threads.nthreads()) threads for parallel test chains.")
     main(ARGS...)
 
-    println("Executed on:")
+    @info "Executed on:"
     InteractiveUtils.versioninfo()
 end
