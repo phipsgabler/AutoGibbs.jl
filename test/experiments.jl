@@ -12,20 +12,22 @@ include("models.jl")
 
 
 # parameters for chain replication
-const CHAIN_LENGTH = 100 #5_000   # sampling steps
+const CHAIN_LENGTH = 10 #5_000   # sampling steps
 const HMC_LF_SIZE = 0.1      # parameter 1 for HMC
 const HMC_N_STEP = 10        # parameter 2 for HMC
 const DATA_RNG = MersenneTwister(424242)
 
 
 # grid parameters
-const DATA_SIZES = (10, 25) #(10, 25, 50, 100)
-const N_PARTICLES = (10, 25) #(5, 10, 15)
-const BENCHMARK_CHAINS = 2 #10  # number of chains to sample per combination
+const DATA_SIZES = (10, 25, 50, 100)
+const N_PARTICLES = (10, 25, 50, 100)
+const BENCHMARK_CHAINS_LARGE = 10  # number of chains to sample per combination
+const BENCHMARK_CHAINS_SMALL = 4
 
 
 function run_experiments(
     modelname,
+    max_data_size,
     setup,
     compilation_times_channel,
     chains_channel
@@ -38,6 +40,10 @@ function run_experiments(
     GC.gc()
 
     for data_size in DATA_SIZES
+        if data_size > max_data_size
+            continue
+        end
+        
         data = generate(DATA_RNG, data_size)
         model_ag = example(x = data)
         model_pg = tarray_example(x = data)
@@ -48,7 +54,7 @@ function run_experiments(
             start_time = time_ns()
             static_conditional = StaticConditional(model_ag, p_discrete)
             compilation_time = (time_ns() - start_time) / 1e9
-            @info "Compiled conditional for data size $data_size in $compilation_time seconds"
+            @info "[$modelname] Compiled conditional for data size $data_size in $compilation_time seconds"
             
             put!(compilation_times_channel,
                  (model = modelname,
@@ -70,8 +76,9 @@ function run_experiments(
             GC.gc()
             
             for ((d_alg, c_alg), (model, sampler)) in combinations
-                @info "Sampling $BENCHMARK_CHAINS chains using $d_alg+$c_alg with data size $data_size and $particles particles"
-                @showprogress for repetition in 1:BENCHMARK_CHAINS
+                chains = data_size > 50 ? BENCHMARK_CHAINS_SMALL : BENCHMARK_CHAINS_LARGE
+                @info "[$modelname] Sampling $chains chains using $d_alg+$c_alg with data size $data_size and $particles particles"
+                @showprogress for repetition in 1:chains
                     start_time = time_ns()
                     chain = sample(model, sampler, CHAIN_LENGTH)
                     # sample(model, sampler, MCMCThreads(), 10, N)
@@ -170,8 +177,14 @@ const MODEL_SETUPS = Dict([
 ])
 
 
-function main(modelname, results_path=nothing; symlinks=false)
+function main(
+    modelname,
+    max_data_size=maximum(DATA_SIZES),
+    results_path=nothing,
+    symlinks=false
+)
     modelname = uppercase(modelname)
+    max_data_size = parse(Int, max_data_size)
     
     if isnothing(results_path)
         results_path = "."
@@ -187,9 +200,9 @@ function main(modelname, results_path=nothing; symlinks=false)
         compilation_times_channel = Channel()
         chains_channel = Channel()
 
-        
         @sync begin
             @async run_experiments(modelname,
+                                   max_data_size,
                                    MODEL_SETUPS[modelname],
                                    compilation_times_channel,
                                    chains_channel)
@@ -197,21 +210,25 @@ function main(modelname, results_path=nothing; symlinks=false)
             @async serialize_compilation_times(compiletimes_fn, compilation_times_channel)
         end
 
-    if symlinks
-        # overwrite a symlink to the latest version, without time stamp
-        samplingtimes_fn_nodate = abspath(results_path, "$modelname-sampling_times.csv")
-        diagnostics_fn_nodate = abspath(results_path, "$modelname-diagnostics.csv")
-        chains_fn_nodate = abspath(results_path, "$modelname-chains.csv")
-        compiletimes_fn_nodate = abspath(results_path, "$modelname-compile_times.csv") 
-        
-        for (file, link) in zip(
-            (samplingtimes_fn, diagnostics_fn, chains_fn, compiletimes_fn),
-            (samplingtimes_fn_nodate, diagnostics_fn_nodate, chains_fn_nodate, compiletimes_fn_nodate)
-        )
-            rm(link, force=true)
-            symlink(file, link)
+        if symlinks
+            # overwrite a symlink to the latest version, without time stamp
+            samplingtimes_fn_nodate = abspath(results_path, "$modelname-sampling_times.csv")
+            diagnostics_fn_nodate = abspath(results_path, "$modelname-diagnostics.csv")
+            chains_fn_nodate = abspath(results_path, "$modelname-chains.csv")
+            compiletimes_fn_nodate = abspath(results_path, "$modelname-compile_times.csv") 
+            
+            for (file, link) in zip(
+                (samplingtimes_fn, diagnostics_fn, chains_fn, compiletimes_fn),
+                (samplingtimes_fn_nodate, diagnostics_fn_nodate, chains_fn_nodate, compiletimes_fn_nodate)
+            )
+                rm(link, force=true)
+                symlink(file, link)
+            end
         end
-    end
+
+        
+        @info "[$modelname] Executed on:"
+        InteractiveUtils.versioninfo()
     else
         println("Unknown model: $modelname")
     end
@@ -220,7 +237,4 @@ end
 
 if abspath(PROGRAM_FILE) == @__FILE__
     main(ARGS...)
-
-    @info "Executed on:"
-    InteractiveUtils.versioninfo()
 end
