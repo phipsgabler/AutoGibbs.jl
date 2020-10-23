@@ -12,7 +12,7 @@ include("models.jl")
 
 
 # parameters for chain replication
-const CHAIN_LENGTH = 10 #5_000   # sampling steps
+const CHAIN_LENGTH = 5_000   # sampling steps
 const HMC_LF_SIZE = 0.1      # parameter 1 for HMC
 const HMC_N_STEP = 10        # parameter 2 for HMC
 const DATA_RNG = MersenneTwister(424242)

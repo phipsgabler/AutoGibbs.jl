@@ -4,7 +4,7 @@
 #SBATCH --cpus-per-task 1
 #SBATCH --time 12:00:00
 #SBATCH --exclusive
-#SBATCH --array=0-1
+#SBATCH --array=0-2
 #SBATCH --export HOME=/clusterFS/home/user/phg,TERM,JULIA_DEPOT_PATH=/clusterFS/home/user/phg/julia_depot
 #SBATCH --mail-type END,FAIL
 
@@ -16,6 +16,7 @@ resultspath="${codepath}/results"
 outfile="${resultspath}/out.txt"
 errfile="${resultspath}/err.txt"
 
+# -n1 is necessary here, since otherwise --exclusive will create several (equal) tasks per node
 run_slurm="srun -n1 -o ${outfile} -e ${errfile}"
 
 cd ${codepath}
