@@ -13,8 +13,9 @@ homepath="/clusterFS/home/user/${USER}"
 codepath="${homepath}/git/AutoGibbs.jl"
 runpath="${codepath}/test/experiments.jl"
 resultspath="${codepath}/results"
-outfile="${resultspath}/out.txt"
-errfile="${resultspath}/err.txt"
+# resultspath="${homepath}/tmp"
+outfile="${resultspath}/R-out-%j-%a.txt"
+errfile="${resultspath}/R-err-%j-%a.txt"
 
 # -n1 is necessary here, since otherwise --exclusive will create several (equal) tasks per node
 run_slurm="srun -n1 -o ${outfile} -e ${errfile}"
@@ -22,7 +23,7 @@ run_slurm="srun -n1 -o ${outfile} -e ${errfile}"
 cd ${codepath}
 
 MODELS=(gmm hmm imm)
-MAX_SIZES=(100 100 10)
+MAX_SIZES=(50 50 10)
 ${run_slurm} ${julia} ${runpath} ${MODELS[$SLURM_ARRAY_TASK_ID]} ${MAX_SIZES[$SLURM_ARRAY_TASK_ID]} ${resultspath}
 
 # test julia

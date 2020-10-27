@@ -119,6 +119,7 @@ VARIABLE_NAMES = (
 
 function print_csv_line(io, values...)
     join(io, ("\"$(escape_string(string(v)))\"" for v in values), ",")
+    flush(io)
 end
 
 function serialize_chains(filename_times, filename_diagnostics, filename_chains, observations)
