@@ -17,10 +17,9 @@ const HMC_LF_SIZE = 0.1      # parameter 1 for HMC
 const HMC_N_STEP = 10        # parameter 2 for HMC
 const DATA_RNG = MersenneTwister(424242)
 
-
-# grid parameters
+# experimental parameters
 const DATA_SIZES = (10, 25, 50, 100)
-const N_PARTICLES = (10, 25, 50, 100)
+const N_PARTICLES = (10, 25, 50)
 const BENCHMARK_CHAINS_LARGE = 10  # number of chains to sample per combination
 const BENCHMARK_CHAINS_SMALL = 4
 
@@ -44,13 +43,13 @@ function run_experiments(
             continue
         end
         
-        data = generate(DATA_RNG, data_size)
-        model_ag = example(x = data)
-        model_pg = tarray_example(x = data)
+        dataname, data = generate(DATA_RNG, data_size)
+        model_ag = example(; dataname => data)
+        model_pg = tarray_example(; dataname => data)
         
         for (i, particles) in enumerate(N_PARTICLES)
-            # get a new conditional for each particle size, so that we have
-            # a couple of samples of the compilation time for each L
+            # create a new conditional for each particle size, so that we have
+            # a couple of samples of the compilation time for each data size
             start_time = time_ns()
             static_conditional = StaticConditional(model_ag, p_discrete)
             compilation_time = (time_ns() - start_time) / 1e9
@@ -102,9 +101,6 @@ function run_experiments(
     end
 
     Turing.turnprogress(old_prog)
-
-    close(compilation_times_channel)
-    close(chains_channel)
 end
 
 
@@ -119,6 +115,7 @@ VARIABLE_NAMES = (
 
 function print_csv_line(io, values...)
     join(io, ("\"$(escape_string(string(v)))\"" for v in values), ",")
+    # withoug flushing, this might not be written when the buffer is small and the process is killed
     flush(io)
 end
 
@@ -200,13 +197,18 @@ function main(
     if haskey(MODEL_SETUPS, modelname)
         compilation_times_channel = Channel()
         chains_channel = Channel()
-
+        
         @sync begin
-            @async run_experiments(modelname,
-                                   max_data_size,
-                                   MODEL_SETUPS[modelname],
-                                   compilation_times_channel,
-                                   chains_channel)
+            t = @async run_experiments(modelname,
+                                       max_data_size,
+                                       MODEL_SETUPS[modelname],
+                                       compilation_times_channel,
+                                       chains_channel)
+
+            # channels need to be closed, whatever happens to `t`
+            bind(compilation_times_channel, t)
+            bind(chains_channel, t)
+            
             @async serialize_chains(samplingtimes_fn, diagnostics_fn, chains_fn, chains_channel)
             @async serialize_compilation_times(compiletimes_fn, compilation_times_channel)
         end

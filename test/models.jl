@@ -60,7 +60,7 @@ end
 gmm_example(;x = data_gmm, K = 2) = gmm(x, K)
 gmm_generate(N; kwargs...) = gmm_generate(Random.GLOBAL_RNG, N; kwargs...)
 gmm_generate(rng, N; K = 2) =
-    identity.(gmm(fill(missing, N), K)(rng, VarInfo(), SampleFromPrior(), DefaultContext()))
+    :x => identity.(gmm(fill(missing, N), K)(rng, VarInfo(), SampleFromPrior(), DefaultContext()))
 
 
 @model function gmm_loopy(x, K, ::Type{T}=Float64) where {T<:Real}
@@ -150,7 +150,7 @@ end
 hmm_example(;x = data_hmm, K = 2) = hmm(x, K)
 hmm_generate(N; kwargs...) = hmm_generate(Random.GLOBAL_RNG, N; kwargs...)
 hmm_generate(rng, N; K = 2) =
-    identity.(hmm(fill(missing, N), K)(rng, VarInfo(), SampleFromPrior(), DefaultContext()))
+    :x => identity.(hmm(fill(missing, N), K)(rng, VarInfo(), SampleFromPrior(), DefaultContext()))
 
 
 @model function changepoint(y)
@@ -219,7 +219,7 @@ end
 imm_stick_example(;y = data_neal, α = α_neal, K = 10) = imm_stick(y, α, K)
 imm_stick_generate(N; kwargs...) = imm_stick_generate(Random.GLOBAL_RNG, N; kwargs...)
 imm_stick_generate(rng, N; α = α_neal, K = 10) =
-    identity.(imm_stick(fill(missing, N), α, K)(rng, VarInfo(), SampleFromPrior(), DefaultContext()))
+    :y => identity.(imm_stick(fill(missing, N), α, K)(rng, VarInfo(), SampleFromPrior(), DefaultContext()))
 
 
 
