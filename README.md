@@ -2,14 +2,21 @@
 
 [![Build Status](https://travis-ci.com/phipsgabler/AutoGibbs.jl.svg?branch=master)](https://travis-ci.com/phipsgabler/AutoGibbs.jl)
 
+**Warning**
+
 Beware: this is nothing but a proof of concept.  Specifically, due to unfortate choices in
-`IRTracker`, handling traces of models with data sets not particularly small can lead to exploding
+`IRTracker**, handling traces of models with data sets not particularly small can lead to exploding
 type inference time, making the method unusable in some cases.
+
+Since keeping track with the internals of Turing that need to be traced, the implementation depends
+on some fixed package versions.  To try it out, run from the environment defined in the
+Manifest.toml.
 
 There are some limitations with respect to kinds of observations supported: 
 - Only “simple” indexing is allowed
 - Slices may work, everything else is at your own risk
 - Broadcasted sampling is not working
+
 
 ## Dependency extraction in DPPL models
 
