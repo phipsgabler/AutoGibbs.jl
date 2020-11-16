@@ -59,6 +59,10 @@ function AbstractMCMC.step!(
     transition;
     kwargs...
 ) where {S}
+    if spl.selector.rerun # Recompute joint in logp
+        model(spl.state.vi)
+    end
+    
     graph = trackdependencies(model, spl.state.vi)
     conditioned_vn = DynamicPPL.VarName(S)
     values = sampled_values(graph)

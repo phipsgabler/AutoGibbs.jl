@@ -65,12 +65,17 @@ function AbstractMCMC.step!(
     transition;
     kwargs...
 )
+    if spl.selector.rerun # Recompute joint in logp
+        model(spl.state.vi)
+    end
+    
     vi = spl.state.vi
     values = sampled_values(model, vi)
     for (vn, cond) in spl.alg.conditionals
         updated = rand(rng, cond(values))
         vi[vn] = [updated;]
     end
+    
     
     return transition
 end

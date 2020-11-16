@@ -26,9 +26,9 @@ samplingtime_plot_gmm <-
     ggplot(aes(x = data_size,
                group = data_size,
                y = sampling_time)) +
-    geom_boxplot(outlier.alpha = 0.2) +
-    ## geom_errorbar(stat = "summary", color = "red") +
-    ## geom_point(alpha = 0.5) +
+    ## geom_boxplot(outlier.alpha = 0.2) +
+    geom_errorbar(stat = "summary", color = "red") +
+    geom_point(alpha = 0.5) +
     facet_grid(. ~ algorithm, scales = "free_x") +
     scale_x_continuous(breaks = unique(sampling_times$data_size)) +
     labs(x = "Observations (data size)", y = "Sampling time (s)",
@@ -37,7 +37,7 @@ samplingtime_plot_gmm <-
 ggsave("results/GMM-sampling_times.pdf", samplingtime_plot_gmm, device = cairo_pdf)
 
 diagnostics_plot_gmm <- diagnostics %>%
-    filter(diagnostic == "ess", data_size != 25) %>%
+    ## filter(diagnostic == "ess", data_size != 25) %>%
     filter(!startsWith(parameter, "z") | parameter == "z[1]") %>%
     arrange(particles) %>%
     mutate(algorithm = as_factor(str_c(discrete_algorithm, " & ", continuous_algorithm,
