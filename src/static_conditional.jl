@@ -7,20 +7,20 @@ export StaticConditional
 
 
 """
-    StaticConditional(sym)
+    StaticConditional(m, sym)
 
-A "pseudo-sampler" to use automatically extracted conditionals within `Gibbs`.  This works by 
-calculating the conditionals once on the model and reusing them in every sampling step; hence, the
-trace of the model must keep the same at every step.
+A "pseudo-sampler" to use automatically extracted conditionals within `Gibbs`.  This works by
+calculating the conditionals once on the model `m` for variable `sym`, and reusing them in every
+sampling step; hence, the trace of the model must keep the same at every step.
 
-`StaticConditional(:x)` will sample the Gibbs conditional of variable `x`, or equivalently, all 
-variables subsumed by `x`.
+`StaticConditional(m, :x)` will sample the Gibbs conditional of discrete variables `x` with a
+defined support, or all such variables subsumed by `x` (i.e., `x[1]`, `x[2]`, ...).
 
 # Examples
 
 ```julia
 
-@model test(x) = begin
+@model function test(x)
     w ~ Dirichlet(2, 1.0)
     p ~ DiscreteNonParametric([0.3, 0.7], w)
     x ~ Bernoulli(p)

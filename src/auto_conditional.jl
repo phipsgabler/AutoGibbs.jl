@@ -21,7 +21,7 @@ variables subsumed by `x`.
 
 ```julia
 
-@model test(x) = begin
+@model function test(x)
     w ~ Dirichlet(2, 1.0)
     p ~ DiscreteNonParametric([0.3, 0.7], w)
     x ~ Bernoulli(p)

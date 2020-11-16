@@ -75,3 +75,51 @@ dot /tmp/graph.dot -Tpdf -Nfontname="Noto Mono" -Efontname="Noto Mono" > /tmp/gr
 
 ![Dependency graph output](./images/graph.png)
 
+
+## Automatic extraction of Gibbs conditionals for discrete variables
+
+The `StaticConditional(m, sym)` "pseudo-sampler" to use automatically extracted conditionals within
+`Gibbs`.  This works by calculating the conditionals once on the model `m` for variable `sym`, and
+reusing them in every sampling step; hence, the trace of the model must keep the same at every step.
+
+
+```julia
+julia> @model function test(x)
+           w ~ Dirichlet(2, 1.0)
+           p ~ DiscreteNonParametric([0.3, 0.7], w)
+           x ~ Bernoulli(p)
+       end
+ModelGen{var"###generator#5702",(:x,),(),Tuple{}}(##generator#5702, NamedTuple())
+
+julia> m = test(true);
+
+julia> cond = StaticConditional(m, :p);
+
+julia> cond.conditionals
+Dict{VarName{:p,Tuple{}},AutoGibbs.GibbsConditional{VarName{:p,Tuple{}},AutoGibbs.LogLikelihood{DiscreteNonParametric{Float64,Float64,Array{Float64,1},Array{Float64,1}},UnionAll,Tuple{AutoGibbs.Fixed{Array{Float64,1}},AutoGibbs.Variable{VarName{:w,Tuple{}}}},AutoGibbs.Variable{VarName{:p,Tuple{}}}},Array{Pair{VarName,AutoGibbs.LogLikelihood},1}}} with 1 entry:
+  p => logpdf(DiscreteNonParametric([0.3, 0.7], θ[w]), θ[p]) + logpdf(Bernoulli(θ[p]), θ[x])
+```
+
+In the last line, we see that the analytic log conditional density for `p`, in terms of the
+variables in its Markov blanket.  This can then be normalized by summation (since `p` is discrete)
+and sampled from exactly.
+
+`StaticConditional(m, :x)` will sample the Gibbs conditional of discrete variables `x` with a
+defined `Distributions.support` (assumed to be finite), or all such variables subsumed by `x` (i.e.,
+`x[1]`, `x[2]`, ...).  Products (from `filldist` etc.) should work as well.
+
+This sampler can then be used in combination with other samplers within `Gibbs`, for example:
+
+```julia
+julia> sample(m, Gibbs(cond, MH(:w)), N)
+```
+
+For models where relations between variables can vary dynamically, an equivalent sampler
+`AutoConditional` is provided as well.  This sampler performs the graph extraction at every samling
+step instead of once in advance.  Currently, however, it is only of theoretical interest, since due
+to some typeing issues, it is incredibly slow.  Anyway:
+
+```julia
+sample(m, Gibbs(AutoConditional(:p), MH(:w)), N)
+```
+
