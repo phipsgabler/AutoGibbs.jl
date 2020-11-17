@@ -36,7 +36,7 @@ function run_experiments(
     old_prog = Turing.PROGRESS[]
     Turing.turnprogress(false)
 
-    GC.gc()
+    # GC.gc()
 
     for data_size in DATA_SIZES
         if data_size > max_data_size
@@ -72,7 +72,7 @@ function run_experiments(
                 ("PG", "HMC") => (model_pg, Gibbs(pg, hmc))
             ])
 
-            GC.gc()
+            # GC.gc()
             
             for ((d_alg, c_alg), (model, sampler)) in combinations
                 chains = data_size > 50 ? BENCHMARK_CHAINS_SMALL : BENCHMARK_CHAINS_LARGE
@@ -94,7 +94,7 @@ function run_experiments(
                           chain = chain,
                           ))
 
-                    GC.gc()
+                    # GC.gc()
                 end
             end
         end
@@ -197,18 +197,19 @@ function main(
     if haskey(MODEL_SETUPS, modelname)
         compilation_times_channel = Channel()
         chains_channel = Channel()
+
+        @async try
+            run_experiments(modelname,
+                            max_data_size,
+                            MODEL_SETUPS[modelname],
+                            compilation_times_channel,
+                            chains_channel)
+        finally
+            close(compilation_times_channel)
+            close(chains_channel)
+        end
         
         @sync begin
-            t = @async run_experiments(modelname,
-                                       max_data_size,
-                                       MODEL_SETUPS[modelname],
-                                       compilation_times_channel,
-                                       chains_channel)
-
-            # channels need to be closed, whatever happens to `t`
-            bind(compilation_times_channel, t)
-            bind(chains_channel, t)
-            
             @async serialize_chains(samplingtimes_fn, diagnostics_fn, chains_fn, chains_channel)
             @async serialize_compilation_times(compiletimes_fn, compilation_times_channel)
         end
