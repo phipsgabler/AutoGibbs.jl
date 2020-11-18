@@ -27,7 +27,7 @@ MAX_SIZES=(50 50 10)
 ${run_slurm} ${julia} ${runpath} ${MODELS[$SLURM_ARRAY_TASK_ID]} ${MAX_SIZES[$SLURM_ARRAY_TASK_ID]} ${resultspath}
 
 # test julia
-# ${run_slurm} -l ${outfile} -e ${errfile} ${julia} -e "sleep(20); println(\"${MODELS[$SLURM_ARRAY_TASK_ID]}\", ${SLURM_ARRAY_TASK_ID})"
+# ${run_slurm} ${julia} -e "sleep(10); println(\"${MODELS[$SLURM_ARRAY_TASK_ID]}\", ${SLURM_ARRAY_TASK_ID})"
 
 # Running an interactive session:
 # srun -J "test_julia" -p labor -D /clusterFS/home/user/phg/git/AutoGibbs.jl /bin/bash
