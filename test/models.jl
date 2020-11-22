@@ -23,6 +23,12 @@ const s2_imm = 1.0
 
 ####################################################################################################
 ####################################################################################################
+@model function hierarchical_gaussian(x)
+    λ ~ Gamma(2.0, inv(3.0))
+    m ~ Normal(0, sqrt(1 / λ))
+    x ~ Normal(m, sqrt(1 / λ))
+end
+
 @model function bernoulli_mixture(x)
     # Mixture prior.
     w ~ Dirichlet(2, 1/2)
