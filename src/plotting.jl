@@ -12,11 +12,11 @@ function pushstmt!(stmts, ref, stmt::Call)
     push!(stmts, GraphViz.Node(string(ref.number), label=label, shape="rectangle"))
 end
 function pushstmt!(stmts, ref, stmt::Assumption)
-    label = escape_show(ref) * " ~ " * escape_show(stmt.dist_ref)
+    label = "$(escape_show(ref)) = $(escape_show(stmt.vn)) ~ $(escape_show(stmt.dist_ref))"
     push!(stmts, GraphViz.Node(string(ref.number), label=label, shape="circle"))
 end
 function pushstmt!(stmts, ref, stmt::Observation)
-    label = escape_show(ref) * " ~̇ " * escape_show(stmt.dist_ref) * " ← " * escape_show(stmt.value)
+    label = "$(escape_show(ref)) = $(escape_show(stmt.vn)) ~̇ $(escape_show(stmt.dist_ref)) ← $(escape_show(stmt.value))"
     push!(stmts, GraphViz.Node(string(ref.number), label=label, shape="circle"))
 end
 
@@ -52,7 +52,7 @@ function Base.convert(::Type{GraphViz.Graph}, graph::Graph)
 
             # call to non-constant function
             if stmt.f isa Reference
-                to = nodes[graph[arg]]
+                to = nodes[graph[stmt.f]]
                 push!(stmts, GraphViz.Edge([from, to]))
             end
         end
