@@ -11,7 +11,7 @@ const data_hmm = [
     2.081341502733774,
     1.0565299991122412,
 ]
-const s1_hmm = 0.5
+const s1_hmm = 5.0
 const s2_hmm = 0.1
 
 # data for IMM from R. Neal paper: 
