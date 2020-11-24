@@ -11,8 +11,8 @@ const data_hmm = [
     2.081341502733774,
     1.0565299991122412,
 ]
-const s1_hmm = 5.0
-const s2_hmm = 0.1
+const s1_hmm = 0.1
+const s2_hmm = 0.5
 
 # data for IMM from R. Neal paper: 
 const data_neal = [-1.48, -1.40, -1.16, -1.08, -1.02, 0.14, 0.51, 0.53, 0.78]
@@ -45,15 +45,15 @@ bernoulli_example(;x = false) = bernoulli_mixture(x)
 
 @model function gmm(x, K)
     N = length(x)
-    
-    # Cluster centers.
-    μ ~ filldist(Normal(0.0, s1_gmm), K)
 
     # Cluster association prior.
     w ~ Dirichlet(K, 1/K)
 
     # Cluster assignments.
     z ~ filldist(DiscreteNonParametric(1:K, w), N)
+
+    # Cluster centers.
+    μ ~ filldist(Normal(0.0, s1_gmm), K)
 
     # Observations.
     for n = 1:N
@@ -120,33 +120,32 @@ end
 gmm_shifted_example(;x = data_gmm, K = 2) = gmm_shifted(x, K)
 
 
-# K clusters, each one around i for i = 1:K with variance 0.5
-@model function hmm(x, K, ::Type{T}=Float64) where {T<:Real}
+# K clusters, each one around i for i = 1:K with fixed variance
+@model function hmm(x, K, ::Type{X}=Float64) where {X<:Real}
     N = length(x)
 
-    # State sequence.
-    s = zeros(Int, N)
-
-    # Emission matrix.
-    m = Vector{T}(undef, K)
-
     # Transition matrix.
-    T = Vector{Vector{T}}(undef, K)
-
-    # Assign distributions to each element
-    # of the transition matrix and the
-    # emission matrix.
+    T = Vector{Vector{X}}(undef, K)
     for i = 1:K
         T[i] ~ Dirichlet(K, 1/K)
+    end
+    
+    # State sequence.
+    s = zeros(Int, N)
+    s[1] ~ Categorical(K)
+    for i = 2:N
+        s[i] ~ Categorical(T[s[i-1]])
+    end
+    
+    # Emission matrix.
+    m = Vector{T}(undef, K)
+    for i = 1:K
         m[i] ~ Normal(i, s1_hmm)
     end
     
     # Observe each point of the input.
-    s[1] ~ Categorical(K)
     x[1] ~ Normal(m[s[1]], s2_hmm)
-
     for i = 2:N
-        s[i] ~ Categorical(T[s[i-1]])
         x[i] ~ Normal(m[s[i]], s2_hmm)
     end
 
@@ -232,24 +231,25 @@ imm_stick_generate(rng, N; α = α_neal, K = 10) =
 
 
 
-
 ####################################################################################################
 ####################################################################################################
 @model function gmm_tarray(x, K)
     N = length(x)
-    
-    # Cluster centers.
-    μ ~ filldist(Normal(0.0, s1_gmm), K)
 
     # Cluster association prior.
     w ~ Dirichlet(K, 1/K)
 
     # Cluster assignments.
     z = tzeros(Int, N)
+    for n = 1:N
+        z[n] ~ DiscreteNonParametric(1:K, w)
+    end
+    
+    # Cluster centers.
+    μ ~ filldist(Normal(0.0, s1_gmm), K)
 
     # Observations.
     for n = 1:N
-        z[n] ~ DiscreteNonParametric(1:K, w)
         x[n] ~ Normal(μ[z[n]], s2_gmm)
     end
 
@@ -259,25 +259,26 @@ end
 gmm_tarray_example(;x = data_gmm, K = 2) = gmm_tarray(x, K)
 
 
-# K clusters, each one around i for i = 1:K with variance 0.5
-@model function hmm_tarray(x, K, ::Type{T}=Float64) where {T<:Real}
+# K clusters, each one around i for i = 1:K with fixed variance
+@model function hmm_tarray(x, K)
     N = length(x)
 
+    # Transition matrix.
+    T ~ filldist(Dirichlet(K, 1/K), K)
+    
     # State sequence.
     s = tzeros(Int, N)
-
+    s[1] ~ Categorical(K)
+    for i = 2:N
+        s[i] ~ Categorical(T[:,s[i-1]])
+    end
+    
     # Emission matrix.
-    m ~ arraydist([Normal(i, s1_hmm) for i in 1:K])
-
-    # Transition matrix.
-    t ~ filldist(Dirichlet(K, 1/K), K)
+    m ~ arraydist(Normal(1:K, s1_hmm))
 
     # Observe each point of the input.
-    s[1] ~ Categorical(K)
     x[1] ~ Normal(m[s[1]], s2_hmm)
-
     for i = 2:N
-        s[i] ~ Categorical(t[:,s[i-1]])
         x[i] ~ Normal(m[s[i]], s2_hmm)
     end
 
