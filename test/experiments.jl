@@ -12,17 +12,16 @@ include("models.jl")
 
 
 # parameters for chain replication
-const CHAIN_LENGTH = 5_000   # sampling steps
-const HMC_LF_SIZE = 0.1      # parameter 1 for HMC
+const CHAIN_LENGTH = 100 #10_000   # sampling steps
+const HMC_LF_SIZE = 0.05     # parameter 1 for HMC
 const HMC_N_STEP = 10        # parameter 2 for HMC
 const DATA_RNG = MersenneTwister(424242)
 
 # experimental parameters
 const DATA_SIZES = (10, 25, 50, 100)
-const N_PARTICLES = (10, 25, 50)
-const BENCHMARK_CHAINS_LARGE = 10  # number of chains to sample per combination
-const BENCHMARK_CHAINS_SMALL = 4
-
+const N_PARTICLES = (100,)
+const BENCHMARK_COMPILATIONS = 5
+const BENCHMARK_CHAINS = 10
 
 function run_experiments(
     modelname,
@@ -36,7 +35,7 @@ function run_experiments(
     old_prog = Turing.PROGRESS[]
     Turing.turnprogress(false)
 
-    # GC.gc()
+    GC.gc()
 
     for data_size in DATA_SIZES
         if data_size > max_data_size
@@ -48,18 +47,22 @@ function run_experiments(
         model_pg = tarray_example(; dataname => data)
         
         for (i, particles) in enumerate(N_PARTICLES)
-            # create a new conditional for each particle size, so that we have
-            # a couple of samples of the compilation time for each data size
-            start_time = time_ns()
-            static_conditional = StaticConditional(model_ag, p_discrete)
-            compilation_time = (time_ns() - start_time) / 1e9
-            @info "[$modelname] Compiled conditional for data size $data_size in $compilation_time seconds"
-            
-            put!(compilation_times_channel,
-                 (model = modelname,
-                  data_size = data_size,
-                  repetition = i,
-                  compilation_time = compilation_time))
+            local static_conditional
+
+            # This is done outside the combination loop, so that we have several compile time
+            # samples .The last one is reused for the actual sampler.
+            @info "[$modelname] Compiling conditional for data size $data_size"
+            @showprogress for c in 1:BENCHMARK_COMPILATIONS
+                start_time = time_ns()
+                static_conditional = StaticConditional(model_ag, p_discrete)
+                compilation_time = (time_ns() - start_time) / 1e9
+                
+                put!(compilation_times_channel,
+                     (model = modelname,
+                      data_size = data_size,
+                      repetition = i,
+                      compilation_time = compilation_time))
+            end
             
             # mh = MH(p_continuous...)
             hmc = HMC(HMC_LF_SIZE, HMC_N_STEP, p_continuous...)
@@ -72,15 +75,15 @@ function run_experiments(
                 ("PG", "HMC") => (model_pg, Gibbs(pg, hmc))
             ])
 
-            # GC.gc()
+            GC.gc()
             
             for ((d_alg, c_alg), (model, sampler)) in combinations
-                chains = data_size > 50 ? BENCHMARK_CHAINS_SMALL : BENCHMARK_CHAINS_LARGE
-                @info "[$modelname] Sampling $chains chains using $d_alg+$c_alg with data size $data_size and $particles particles"
-                @showprogress for repetition in 1:chains
+                C = BENCHMARK_CHAINS
+                
+                @info "[$modelname] Sampling $C chains using $d_alg+$c_alg with data size $data_size and $particles particles"
+                @showprogress for repetition in 1:C
                     start_time = time_ns()
                     chain = sample(model, sampler, CHAIN_LENGTH)
-                    # sample(model, sampler, MCMCThreads(), 10, N)
                     sampling_time = (time_ns() - start_time) / 1e9
                     
                     put!(chains_channel,

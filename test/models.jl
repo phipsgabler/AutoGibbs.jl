@@ -120,6 +120,28 @@ end
 gmm_shifted_example(;x = data_gmm, K = 2) = gmm_shifted(x, K)
 
 
+@model function gmm_marginalized(x, K)
+    N = length(x)
+
+    # Cluster association prior.
+    w ~ Dirichlet(K, 1/K)
+
+    # Cluster centers.
+    μ ~ filldist(Normal(0.0, s1_gmm), K)
+
+    # Observations.
+    for n = 1:N
+        x[n] ~ MixtureModel(Normal, μ, w)
+    end
+
+    return x
+end
+
+gmm_marginalized_example(;x = data_gmm, K = 2) = gmm_marginalized(x, K)
+gmm_marginalized_generate(N; kwargs...) = gmm_marginalized_generate(Random.GLOBAL_RNG, N; kwargs...)
+gmm_marginalized_generate(rng, N; K = 2) =
+    :x => identity.(gmm_marginalized(fill(missing, N), K)(rng, VarInfo(), SampleFromPrior(), DefaultContext()))
+
 # K clusters, each one around i for i = 1:K with fixed variance
 @model function hmm(x, K, ::Type{X}=Float64) where {X<:Real}
     N = length(x)

@@ -15,15 +15,57 @@ const MODEL_SETUPS = Dict([
     "IMM" => (imm_stick_generate, imm_stick_example, imm_stick_tarray_example, :z, (:μ, :v))
 ])
 const DATA_SIZE = 10
+const CHAIN_LENGTH = 500
 
-function evaluate(model::String, samplers::String, stepsize::String, steps::String, particles::String)
-    return evaluate(
+function evaluate_graphic(
+    model::String,
+    samplers::String,
+    stepsize::String,
+    steps::String,
+    particles::String
+)
+    data, chain = evaluate(
         model,
         samplers,
         parse(Float64, stepsize),
         parse(Int, steps),
         parse(Int, particles)
     )
+    @show data
+    @show chain
+    plot(chain)
+end
+
+function evaluate_grid(
+    model,
+    samplers;
+    stepsizes=(0.01, 0.025, 0.05, 0.1),
+    steps=(5, 10),
+    particles=(20, 40, 60),
+    N=CHAIN_LENGTH)
+
+    for ss in stepsizes, s in steps, p in particles
+        println("Evaluating $model with $samplers")
+        println("using stepsize $ss, $s steps, and $p particles")
+        println("for chain of length $N")
+        data, chain = evaluate(model, samplers, ss, s, p, N)
+        show(ess(chain))
+    end
+end
+
+function evaluate_marginalized(
+    stepsizes=(0.01, 0.025, 0.05, 0.1),
+    steps=(5, 10),
+    N=CHAIN_LENGTH
+)
+    dataname, data = gmm_marginalized_generate(DATA_RNG, 10)
+    model = gmm_marginalized_example(; dataname => data)
+    @show model
+    for ss in stepsizes, s in steps
+        println("Using stepsize $ss, $s steps, for chain of length $N")
+        chain = sample(model, HMC(ss, s), N)
+        show(ess(chain))
+    end
 end
 
 """
@@ -32,8 +74,13 @@ end
 Try out the model with specified samplers and parameters.  `stepsize` and `steps` are for HMC,
 `particles` is for PG.  `samplers` is a string containing either `nuts` or `hmc`, and either
 `ag` or `pg`.  Unneeded parameters are ignored, but must be present for the signature.
+
+Example:
+```julia
+evaluate_grid("GMM", "ag,nuts", stepsizes=(nothing,), steps=(nothing,))
+```
 """
-function evaluate(model, samplers, stepsize, steps, particles)
+function evaluate(model, samplers, stepsize, steps, particles, N)
     generate, example, tarray_example, p_discrete, p_continuous = MODEL_SETUPS[model]
 
     dataname, data = generate(DATA_RNG, DATA_SIZE)
@@ -64,8 +111,6 @@ function evaluate(model, samplers, stepsize, steps, particles)
         error("Unknown discrete sampler")
     end
     
-    @show data
-    chain = sample(model_pg, Gibbs(sampler_continuous, sampler_discrete), 1000)
-    show(chain)
-    plot(chain)
+    chain = sample(model_pg, Gibbs(sampler_continuous, sampler_discrete), N)
+    return data, chain
 end
