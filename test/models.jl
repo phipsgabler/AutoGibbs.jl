@@ -160,7 +160,7 @@ gmm_marginalized_generate(rng, N; K = 2) =
     end
     
     # Emission matrix.
-    m = Vector{T}(undef, K)
+    m = Vector{X}(undef, K)
     for i = 1:K
         m[i] ~ Normal(i, s1_hmm)
     end

@@ -23,7 +23,7 @@ run_slurm="srun -n1 -o ${outfile} -e ${errfile}"
 cd ${codepath}
 
 MODELS=(gmm hmm imm)
-MAX_SIZES=(50 50 10)
+MAX_SIZES=(50 50 50)
 ${run_slurm} ${julia} ${runpath} ${MODELS[$SLURM_ARRAY_TASK_ID]} ${MAX_SIZES[$SLURM_ARRAY_TASK_ID]} ${resultspath}
 
 # test julia

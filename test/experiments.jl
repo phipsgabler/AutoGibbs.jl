@@ -12,7 +12,7 @@ include("models.jl")
 
 
 # parameters for chain replication
-const CHAIN_LENGTH = 100 #10_000   # sampling steps
+const CHAIN_LENGTH = 10_000   # sampling steps
 const HMC_LF_SIZE = 0.05     # parameter 1 for HMC
 const HMC_N_STEP = 10        # parameter 2 for HMC
 const DATA_RNG = MersenneTwister(424242)
@@ -38,32 +38,34 @@ function run_experiments(
     GC.gc()
 
     for data_size in DATA_SIZES
-        if data_size > max_data_size
-            continue
-        end
+        println("1")
+        # if data_size > max_data_size
+        #     continue
+        # end
         
         dataname, data = generate(DATA_RNG, data_size)
+        println("2")
         model_ag = example(; dataname => data)
+        println("3")
         model_pg = tarray_example(; dataname => data)
-        
-        for (i, particles) in enumerate(N_PARTICLES)
-            local static_conditional
-
-            # This is done outside the combination loop, so that we have several compile time
-            # samples .The last one is reused for the actual sampler.
-            @info "[$modelname] Compiling conditional for data size $data_size"
-            @showprogress for c in 1:BENCHMARK_COMPILATIONS
-                start_time = time_ns()
-                static_conditional = StaticConditional(model_ag, p_discrete)
-                compilation_time = (time_ns() - start_time) / 1e9
-                
-                put!(compilation_times_channel,
-                     (model = modelname,
-                      data_size = data_size,
-                      repetition = i,
-                      compilation_time = compilation_time))
-            end
+        println("4")
+        # This is done outside the combination loop, so that we have several compile time
+        # samples .The last one is reused for the actual sampler.
+        local static_conditional
+        @info "[$modelname] Compiling conditional for data size $data_size"
+        @showprogress for c in 1:BENCHMARK_COMPILATIONS
+            start_time = time_ns()
+            static_conditional = StaticConditional(model_ag, p_discrete)
+            compilation_time = (time_ns() - start_time) / 1e9
             
+            put!(compilation_times_channel,
+                 (model = modelname,
+                  data_size = data_size,
+                  repetition = c,
+                  compilation_time = compilation_time))
+        end
+        println("3")
+        for (i, particles) in enumerate(N_PARTICLES)
             # mh = MH(p_continuous...)
             hmc = HMC(HMC_LF_SIZE, HMC_N_STEP, p_continuous...)
             pg = PG(particles, p_discrete)
@@ -207,6 +209,8 @@ function main(
                             MODEL_SETUPS[modelname],
                             compilation_times_channel,
                             chains_channel)
+        catch e
+            showerror(e)
         finally
             close(compilation_times_channel)
             close(chains_channel)
