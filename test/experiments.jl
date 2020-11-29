@@ -38,17 +38,14 @@ function run_experiments(
     GC.gc()
 
     for data_size in DATA_SIZES
-        println("1")
-        # if data_size > max_data_size
-        #     continue
-        # end
+        if data_size > max_data_size
+            continue
+        end
         
         dataname, data = generate(DATA_RNG, data_size)
-        println("2")
         model_ag = example(; dataname => data)
-        println("3")
         model_pg = tarray_example(; dataname => data)
-        println("4")
+
         # This is done outside the combination loop, so that we have several compile time
         # samples .The last one is reused for the actual sampler.
         local static_conditional
@@ -64,7 +61,7 @@ function run_experiments(
                   repetition = c,
                   compilation_time = compilation_time))
         end
-        println("3")
+        
         for (i, particles) in enumerate(N_PARTICLES)
             # mh = MH(p_continuous...)
             hmc = HMC(HMC_LF_SIZE, HMC_N_STEP, p_continuous...)
