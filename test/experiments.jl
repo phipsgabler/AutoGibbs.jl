@@ -18,7 +18,7 @@ const HMC_N_STEP = 10        # parameter 2 for HMC
 const DATA_RNG = MersenneTwister(424242)
 
 # experimental parameters
-const DATA_SIZES = (10, 25, 50, 100)
+const DATA_SIZES = ((10, 25, 50, 100)
 const N_PARTICLES = (100,)
 const BENCHMARK_COMPILATIONS = 5
 const BENCHMARK_CHAINS = 10
@@ -40,6 +40,7 @@ function run_experiments(
     for data_size in DATA_SIZES
         if data_size > max_data_size
             continue
+            @info "[$modelname] Skipped data size $data_size > $max_data_size"
         end
         
         dataname, data = generate(DATA_RNG, data_size)
@@ -49,7 +50,7 @@ function run_experiments(
         # This is done outside the combination loop, so that we have several compile time
         # samples .The last one is reused for the actual sampler.
         local static_conditional
-        @info "[$modelname] Compiling conditional for data size $data_size"
+        @info "[$modelname] Compiling conditionals for data size $data_size"
         @showprogress for c in 1:BENCHMARK_COMPILATIONS
             start_time = time_ns()
             static_conditional = StaticConditional(model_ag, p_discrete)
@@ -183,6 +184,8 @@ function main(
     results_path=nothing,
     symlinks=false
 )
+    @info "[$modelname] Executed on:" version=sprint(InteractiveUtils.versioninfo)
+    
     modelname = uppercase(modelname)
     max_data_size = parse(Int, max_data_size)
     
@@ -207,7 +210,7 @@ function main(
                             compilation_times_channel,
                             chains_channel)
         catch e
-            showerror(e)
+            @error "[$modelname] An error occured:" exception=(e, catch_backtrace())
         finally
             close(compilation_times_channel)
             close(chains_channel)
@@ -234,11 +237,9 @@ function main(
             end
         end
 
-        
-        @info "[$modelname] Executed on:"
-        InteractiveUtils.versioninfo()
+        @info "[$modelname] Finished successfully"
     else
-        println("Unknown model: $modelname")
+        @error "Unknown model: $modelname"
     end
 end
 
