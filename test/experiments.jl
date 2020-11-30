@@ -18,7 +18,7 @@ const HMC_N_STEP = 10        # parameter 2 for HMC
 const DATA_RNG = MersenneTwister(424242)
 
 # experimental parameters
-const DATA_SIZES = ((10, 25, 50, 100)
+const DATA_SIZES = (10, 25, 50, 100)
 const N_PARTICLES = (100,)
 const BENCHMARK_COMPILATIONS = 5
 const BENCHMARK_CHAINS = 10
