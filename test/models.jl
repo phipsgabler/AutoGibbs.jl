@@ -34,10 +34,10 @@ end
     w ~ Dirichlet(2, 1/2)
 
     # Latent probability.
-    p ~ DiscreteNonParametric([0.3, 0.7], w)
+    π ~ DiscreteNonParametric([0.3, 0.7], w)
 
     # Observation.
-    x ~ Bernoulli(p)
+    x ~ Bernoulli(π)
 end
 
 bernoulli_example(;x = false) = bernoulli_mixture(x)
@@ -292,11 +292,11 @@ gmm_tarray_example(;x = data_gmm, K = 2) = gmm_tarray(x, K)
     s = tzeros(Int, N)
     s[1] ~ Categorical(K)
     for i = 2:N
-        s[i] ~ Categorical(T[:,s[i-1]])
+        s[i] ~ Categorical(T[:, s[i-1]])
     end
     
     # Emission matrix.
-    m ~ arraydist(Normal(1:K, s1_hmm))
+    m ~ arraydist(Normal.(1:K, s1_hmm))
 
     # Observe each point of the input.
     x[1] ~ Normal(m[s[1]], s2_hmm)
