@@ -173,7 +173,7 @@ end
 
 const MODEL_SETUPS = Dict([
     "GMM" => (gmm_generate, gmm_example, gmm_tarray_example, :z, (:w, :μ)),
-    "HMM" => (hmm_generate, hmm_example, hmm_tarray_example, :s, (:t, :m)),
+    "HMM" => (hmm_generate, hmm_example, hmm_tarray_example, :s, (:T, :m)),
     "IMM" => (imm_stick_generate, imm_stick_example, imm_stick_tarray_example, :z, (:μ, :v))
 ])
 
