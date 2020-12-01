@@ -8,10 +8,10 @@ theme_set(theme_bw(
 theme_update(
     strip.background = element_rect(fill = "white"))
 
-model <- "GMM"
+model <- "HMM"
 timestamp <- "2020-11-30T12:01:00"
 results_dir <- "results/"
-inspected_parameters = c("z[5]", "μ[1]", "w[1]")
+inspected_parameters = c("s[5]", "T[1][1]", "m[1]")
 
 
 sampling_times <- read_csv(paste0(results_dir, model, "-sampling_times-", timestamp, ".csv"))
@@ -137,7 +137,7 @@ chains_plot <-
     ## guides(color = F) + 
     labs(x = "Step", y = "Sampled value",
          color = "Algorithm",
-         title = "Chain comparisons for GMM")
+         title = paste("Chain comparisons for", model))
 ggsave(paste0(results_dir, model, "-chains.pdf"), chains_plot,
        device = cairo_pdf, dpi = "print", units = "cm", width = 15.5, height = 7.5)
 
