@@ -8,10 +8,10 @@ theme_set(theme_bw(
 theme_update(
     strip.background = element_rect(fill = "white"))
 
-model <- "HMM"
+model <- "IMM"
 timestamp <- "2020-11-30T12:01:00"
 results_dir <- "results/"
-inspected_parameters = c("s[5]", "T[1][1]", "m[1]")
+inspected_parameters = c("z[5]", "μ[1]", "v[1]")
 
 
 sampling_times <- read_csv(paste0(results_dir, model, "-sampling_times-", timestamp, ".csv"))
@@ -22,6 +22,15 @@ compile_times <- read_csv(paste0(results_dir, model, "-compile_times-", timestam
     mutate(is_first = repetition == 1,
            category = as_factor(ifelse(is_first, "First", "Other")))
 
+## fix inconsistent parameter names in HMM; same for `diagnostics`
+## library(forcats)
+## chains$parameter <-
+##     fct_collapse(chains$parameter,
+##                  `T[1, 1]` = c("T[1, 1]", "T[1][1]"),
+##                  `T[1, 2]` = c("T[1, 2]", "T[1][2]"),
+##                  `T[2, 1]` = c("T[2, 1]", "T[2][1]"),
+##                  `T[2, 2]` = c("T[2, 2]", "T[2][2]"))
+## write_csv(chains, "results/HMM.recoded-chains-2020-12-01T18:05:00.csv")
 
 obs_labeller <- as_labeller(function(obs) paste(obs, "observations"))
 particles_labeller <- as_labeller(function(p) paste(p, "particles"))
