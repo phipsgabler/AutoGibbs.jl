@@ -200,11 +200,12 @@ compiletime_plot <-
                )) +
     geom_jitter(size = 0.8, height = 0, width = 2,
                 key_glyph = draw_key_rect) +
-    geom_smooth(formula = y ~ I(x^2), method = "lm", se = FALSE,
+    geom_smooth(formula = y ~ I(x^2) - 1, method = "lm", se = FALSE,
                 data = filter(compile_times, !is_first),
                 color = "black", size = 0.5,
                 key_glyph = draw_key_blank) +
-    guides(color = FALSE) + 
+    guides(color = FALSE) +
+    scale_x_continuous(breaks = unique(sampling_times$data_size)) +
     labs(x = "Observations (data size)", y = "Extraction time (s)",
          fill = "Repetition",
          title = paste("AG extraction times for", model))
