@@ -8,7 +8,7 @@ theme_set(theme_bw(
 theme_update(
     strip.background = element_rect(fill = "white"))
 
-model <- "IMM"
+model <- "HMM"
 timestamp <- "2020-11-30T12:01:00"
 results_dir <- "results/"
 inspected_parameters = c("z[5]", "μ[1]", "v[1]")
@@ -205,7 +205,7 @@ compiletime_plot <-
                 color = "black", size = 0.5,
                 key_glyph = draw_key_blank) +
     guides(color = FALSE) +
-    scale_x_continuous(breaks = unique(sampling_times$data_size)) +
+    scale_x_continuous(breaks = unique(compile_times$data_size)) +
     labs(x = "Observations (data size)", y = "Extraction time (s)",
          fill = "Repetition",
          title = paste("AG extraction times for", model))
