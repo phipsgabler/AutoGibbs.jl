@@ -1,4 +1,5 @@
 library(tidyverse)
+library(GGally)
 
 base_font <- "Linux Biolinum O"
 theme_set(theme_bw(
@@ -8,19 +9,27 @@ theme_set(theme_bw(
 theme_update(
     strip.background = element_rect(fill = "white"))
 
-model <- "HMM"
+model <- "IMM"
 timestamp <- "2020-11-30T12:01:00"
+data_dir <- "data/"
 results_dir <- "results/"
-inspected_parameters = c("z[5]", "μ[1]", "v[1]")
+inspected_parameters = c("z[5]", "v[1]", "μ[1]")
 
 
-sampling_times <- read_csv(paste0(results_dir, model, "-sampling_times-", timestamp, ".csv"))
-diagnostics <- read_csv(paste0(results_dir, model, "-diagnostics-", timestamp, ".csv")) %>%
+sampling_times <- read_csv(paste0(data_dir, model, "-sampling_times", ".csv"))
+diagnostics <- read_csv(paste0(data_dir, model, "-diagnostics", ".csv")) %>%
     mutate(diagnostic = as.factor(diagnostic))
-chains <- read_csv(paste0(results_dir, model, "-chains-", timestamp, ".csv"))
-compile_times <- read_csv(paste0(results_dir, model, "-compile_times-", timestamp, ".csv")) %>%
+chains <- read_csv(paste0(data_dir, model, "-chains", ".csv"))
+compile_times <- read_csv(paste0(data_dir, model, "-compile_times", ".csv")) %>%
     mutate(is_first = repetition == 1,
            category = as_factor(ifelse(is_first, "First", "Other")))
+## sampling_times <- read_csv(paste0(data_dir, model, "-sampling_times-", timestamp, ".csv"))
+## diagnostics <- read_csv(paste0(data_dir, model, "-diagnostics-", timestamp, ".csv")) %>%
+##     mutate(diagnostic = as.factor(diagnostic))
+## chains <- read_csv(paste0(data_dir, model, "-chains-", timestamp, ".csv"))
+## compile_times <- read_csv(paste0(data_dir, model, "-compile_times-", timestamp, ".csv")) %>%
+##     mutate(is_first = repetition == 1,
+##            category = as_factor(ifelse(is_first, "First", "Other")))
 
 ## fix inconsistent parameter names in HMM; same for `diagnostics`
 ## library(forcats)
@@ -70,9 +79,11 @@ rhat_plot <-
                group = factor(data_size),
                y = value)) +
     ## geom_boxplot() + 
-    geom_jitter(size = 0.5, height = 0, width = 1) + 
+    geom_jitter(size = 0.5, height = 0, width = 1) +
+    geom_hline(yintercept = 1.1) +
     facet_grid(parameter ~ algorithm, scales = "free_x") +
     scale_x_continuous(breaks = unique(diagnostics$data_size)) +
+    scale_y_continuous(breaks = seq(1, 2, by = 0.05)) + # adapt this for each model!
     labs(x = "Observations (data size)", y = expression(widehat(R)),
          color = "Observations", title = bquote(widehat(R) ~ "values for" ~ .(model)))
 ggsave(paste0(results_dir, model, "-rhat.pdf"), rhat_plot,
@@ -93,6 +104,7 @@ ess_plot <-
     geom_jitter(size = 0.5, height = 0, width = 1) + 
     facet_grid(parameter ~ algorithm, scales = "free_x") +
     scale_x_continuous(breaks = unique(diagnostics$data_size)) +
+    scale_y_continuous(limits = c(0, 10000)) + 
     labs(x = "Observations (data size)", y = "ESS",
          color = "Observations",
          title = bquote("ESS values for" ~ .(model) * phantom(widehat(R))))
@@ -103,8 +115,7 @@ ggsave(paste0(results_dir, model, "-ess.pdf"), ess_plot,
 
 thin_chains <-
     chains %>%
-    filter(repetition %in% 1:3, step %% 37 == 0) %>%
-    filter(parameter %in% inspected_parameters) %>%
+    filter(step %% 37 == 0) %>%
     select(-model, -continuous_algorithm, -particles)
 
 densities_plot <-
@@ -126,6 +137,20 @@ densities_plot <-
          title = paste("AG posterior densities for", model))
 ggsave(paste0(results_dir, model, "-densities.pdf"), densities_plot, device = cairo_pdf)
 
+corner_plot <-
+    thin_chains %>%
+    filter(parameter %in% c(paste0("z[", 1:5, "]"),
+                            paste0("v[", 1:2, "]"),
+                            paste0("μ[", 1:2, "]")),
+           discrete_algorithm == "PG",
+           data_size == 25,
+           repetition == 3) %>%
+    select(step, parameter, value) %>%
+    pivot_wider(names_from = parameter, values_from = value) %>%
+    select(-step) %>%
+    ggpairs(title = paste0(model, ", PG, data size 25, chain 3"))
+ggsave(paste0(results_dir, model, "-cornerplot_PG.pdf"), corner_plot, device = cairo_pdf)
+
 
 chains_plot <-
     thin_chains %>%
@@ -134,7 +159,7 @@ chains_plot <-
                                        ## ifelse(discrete_algorithm == "PG",
                                               ## str_c(", \n", particles, " particles"),
     ## "")))) %>%
-    filter(repetition == 3) %>%
+    filter(repetition == 3, parameter %in% inspected_parameters) %>%
     ggplot(aes(x = step,
                y = value,
                color = discrete_algorithm)) +
