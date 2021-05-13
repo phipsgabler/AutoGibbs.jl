@@ -2,6 +2,8 @@
 
 [![Build Status](https://travis-ci.com/phipsgabler/AutoGibbs.jl.svg?branch=master)](https://travis-ci.com/phipsgabler/AutoGibbs.jl)
 
+This was work for my thesis; it is no longer maintained and probably doesn't work in future versions of Julia or Turing.jl.
+
 **Warning**
 
 Beware: this is nothing but a proof of concept.  Specifically, due to unfortate choices in
